@@ -12,11 +12,9 @@ proc buildHelper(name: string) =
   if not fileExists(name.toExe):
     exec "nim c " & name
 
-task build, "builds Lexim and an example":
+task make, "builds Lexim and an example":
   buildHelper "lexe"
   exec "nim c ex1"
-  setCommand "nop"
 
 task tests, "test regular expressions":
   exec "nim c -r tests"
-  setCommand "nop"

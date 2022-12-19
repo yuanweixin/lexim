@@ -259,6 +259,11 @@ proc NFA_to_DFA*(a: NFA; b: var DFA; fullAlphabet: seq[Alphabet]) =
         states.add e
         addTrans(b.trans[j], c, p)
     inc(j)
+
+  # This is not part of the conversion algorithm, but it is needed to 
+  # to figure out which rule the DFA accepts. Each DFA state can have 
+  # multiple NFA accept states, each corresponding to a rule. We tie 
+  # break by prioritizing the smaller rule number. 
   for d in countup(low(TLabel), j - 1):
     var minRule = high(int)
     for i in countup(low(TLabel), high(TLabel)):
@@ -300,7 +305,8 @@ proc choose(s: TLabelSet; maxState: int): TLabel =
 
 proc optimizeDFA*(a: DFA; b: var DFA; fullAlphabet: seq[Alphabet]) =
   # Optimizes the DFA a to produce a minimal DFA.
-  # We use Hopcroft's algorithm; see the paper coming with this source.
+  # We use Hopcroft's algorithm
+  # see https://www.clear.rice.edu/comp506/Lectures/Hopcroft.pdf
   # We have different types of nodes: there is a one to one correspondence
   # between type and matching rule.
   b.captures = a.captures
@@ -343,6 +349,7 @@ proc optimizeDFA*(a: DFA; b: var DFA; fullAlphabet: seq[Alphabet]) =
     if p[j] != {}:
       let repr = choose(p[j], a.stateCount) # choose a representant of the set
       if a.startState in p[j]: b.startState = j + 1
+      # since all states in the partition are either accept or not accept
       b.toRules[j + 1] = a.toRules[repr]
       for c in fullAlphabet:
         let dest = a.trans[repr].getDest(c)

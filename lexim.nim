@@ -61,7 +61,7 @@ proc genMatcher(a: DFA; s, i, bodies: NimNode; isCString: bool): NimNode {.compi
   let state = genSym(nskVar, "state")
   result = newStmtList()
   result.add newVarStmt(newTree(nnkPragmaExpr, state,
-                          newTree(nnkPragma, ident"goto")),
+                          newTree(nnkPragma, ident"computedGoto")),
                         newTree(nnkBracketExpr, bindSym"range",
                           newRange(newLit(1), newLit(a.stateCount))),
                         newLit(a.startState))

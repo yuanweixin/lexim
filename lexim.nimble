@@ -1,8 +1,9 @@
 
 version = "1.0"
-author = "Andreas Rumpf"
-description = "Lexer generation and regex implementation for Nim."
 license = "MIT"
+
+srcDir        = "src"
+installExt    = @["nim"]
 
 requires "nim >= 1.6.8"
 requires "fusion"

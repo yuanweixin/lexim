@@ -8,11 +8,14 @@
 #
 
 import
-  regexprs, nfa, macros, marshal
+  lexim/regexprs, lexim/nfa, macros, marshal
 import std/tables
 {.experimental: "caseStmtMacros".}
 import fusion/matching
 import std/sugar
+
+export nfa
+export regexprs
 
 proc findMacro(name: string): PRegExpr {.used.} = nil
 

@@ -4,7 +4,8 @@ author = "Andreas Rumpf"
 description = "Lexer generation and regex implementation for Nim."
 license = "MIT"
 
-requires "nim >= 0.11.3"
+requires "nim >= 1.6.8"
+requires "fusion"
 
 import ospaths
 

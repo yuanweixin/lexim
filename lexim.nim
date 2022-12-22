@@ -9,6 +9,10 @@
 
 import
   regexprs, nfa, macros, marshal
+import std/tables
+{.experimental: "caseStmtMacros".}
+import fusion/matching
+import std/sugar
 
 proc findMacro(name: string): PRegExpr {.used.} = nil
 
@@ -57,14 +61,47 @@ proc newVarStmt(name, typ, value: NimNode): NimNode {.compiletime.} =
 proc nextState(i, state: NimNode; dest: int): NimNode {.compileTime.} =
   newStmtList(newCall(bindSym"inc", i), newAssignment(state, newLit(dest)))
 
-proc genMatcher(a: DFA; s, i, bodies: NimNode; isCString: bool): NimNode {.compileTime.} =
+
+const initialStartCondition = "initial"
+type Rule = object 
+    startCondition : string 
+    regex : string 
+    actions : NimNode 
+
+proc replaceBeginState(scToIdx: var Table[string,int], curSc, n:NimNode) : NimNode = 
+    case n 
+    of StmtList[all @stmts]:
+        let nodes = collect(newSeq):
+            for stmt in stmts: replaceBeginState(scToIdx, curSc, stmt)
+        return newStmtList(nodes)
+    of ElifBranch([@cond, @stmtList]):
+        return newTree(nnkElifBranch, cond, replaceBeginState(scToIdx, curSc, stmtList))
+    of Else([@stmtList]):
+        return newTree(nnkElse, replaceBeginState(scToIdx, curSc, stmtList))
+    of IfStmt[all @branches]:
+        # newIfStmt requires tuples, very annoying to use, so I will just do a nested match here. 
+        let newBranches = collect(newSeq):
+            for branch in branches: replaceBeginState(scToIdx, curSc, branch)
+        return newTree(nnkIfStmt, newBranches)            
+    of Call([Ident(strVal: "beginState"), @sc is (kind: in nnkStrKinds)]):
+        if sc.strVal notin scToIdx:
+          raise newException(Exception, "Unknown state: " & sc.strVal)
+        result = nnkAsgn.newTree(
+                curSc,
+                newLit(scToIdx[sc.strVal])
+            )
+    else:
+        return n 
+
+proc newGenMatcher(scToIdx : var Table[string, int], curSc: NimNode, a: DFA; s, i: NimNode, rules: seq[Rule]; isCString: bool, labelOffset: var int): NimNode {.compileTime.} =
+  ## curSc: the genSym'ed variable we use to track current start condition
   let state = genSym(nskVar, "state")
   result = newStmtList()
   result.add newVarStmt(newTree(nnkPragmaExpr, state,
-                          newTree(nnkPragma, ident"computedGoto")),
+                          newTree(nnkPragma, ident"goto")),
                         newTree(nnkBracketExpr, bindSym"range",
-                          newRange(newLit(1), newLit(a.stateCount))),
-                        newLit(a.startState))
+                          newRange(newLit(1+labelOffset), newLit(a.stateCount+labelOffset))),
+                        newLit(a.startState+labelOffset))
   var caseStmt = newNimNode(nnkCaseStmt)
   caseStmt.add state
   result.add newTree(nnkWhileStmt, bindSym"true", caseStmt)
@@ -76,80 +113,127 @@ proc genMatcher(a: DFA; s, i, bodies: NimNode; isCString: bool): NimNode {.compi
       if cs != {}:
         ifStmt.add newTree(nnkElifBranch,
                            getCmp(s, i, cs, isCString),
-                           nextState(i, state, dest))
+                           nextState(i, state, dest+labelOffset))
       for ot in others:
         if ot.kind == reChar:
           ifStmt.add newTree(nnkElifBranch,
                              getSpecial(s, i, ot, isCString),
-                             nextState(i, state, dest))
+                             nextState(i, state, dest+labelOffset))
         else:
           doAssert false, "not supported " & $ot.kind
-    let actions = if rule >= 1:
-           newStmtList(bodies[rule-1][1], newTree(nnkBreakStmt,
-                  newNimNode(nnkEmpty)))
-         else:
-           newTree(nnkBreakStmt, newNimNode(nnkEmpty))
+    let actions = 
+      if rule >= 1:
+        let actions = replaceBeginState(scToIdx, curSc, rules[rule-1].actions)
+        newStmtList(actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty)))
+      else:
+        newTree(nnkBreakStmt, newNimNode(nnkEmpty))
     if ifStmt.len == 0:
-      caseStmt.add newTree(nnkOfBranch, newLit(src), actions)
+      caseStmt.add newTree(nnkOfBranch, newLit(src+labelOffset), actions)
     else:
       ifStmt.add newTree(nnkElse, actions)
-      caseStmt.add newTree(nnkOfBranch, newLit(src), ifStmt)
-
+      caseStmt.add newTree(nnkOfBranch, newLit(src+labelOffset), ifStmt)
+  # need to insert a break statement for when we break out of this inner while loop to break
+  # out of the outer while loop, because we should have recognized the longest match on this 
+  # dfa to be out of its loop, and have not switched the start condition. 
+  result.add nnkBreakStmt.newTree(newEmptyNode())
+  labelOffset += a.stateCount 
+  
 template `/.`(x: string): string =
   (when defined(posix): "./" & x else: x)
 
-macro match*(s: cstring|string; pos: int; sections: varargs[untyped]): untyped =
+proc tryGetRules(scToIdx: var Table[string,int], scToRules: var OrderedTable[int,seq[Rule]], n : NimNode) = 
+    case n 
+    of Call([Ident(strVal: @startCondition), StmtList([all @callList])]):
+        for call in callList:
+            case call
+            of Call([@lit is (kind: in nnkStrKinds), @stmt is StmtList()]):
+                if startCondition notin scToIdx:
+                    scToRules[scToIdx.len] = @[]
+                    scToIdx[startCondition] = scToIdx.len 
+                let scIdx = scToIdx[startCondition]
+                scToRules[scIdx].add Rule(startCondition: startCondition, regex:lit.strVal, actions: stmt)
+            else:
+                raise newException(Exception, "Unable to understand the start condition call with this AST repr " & astGenRepr call)
+    of Call([@lit is (kind: in nnkStrKinds), @stmt is StmtList()]):
+        let scIdx = scToIdx[initialStartCondition]
+        scToRules[scIdx].add Rule(startCondition: initialStartCondition, regex:lit.strVal, actions:stmt)
+    else:
+        raise newException(Exception, "I do not understand the syntax of " & astGenRepr n)
+
+macro match*(s: cstring|string; sections: varargs[untyped]): untyped =
+  # dsl parsing 
+  # insertion order matters for generating the goto
+  var scToRules = initOrderedTable[int, seq[Rule]]() 
+  var scToIdx = initTable[string,int]() 
+  scToIdx[initialStartCondition] = 0
+  scToRules[0] = @[]
+  case sections 
+  of ArgList([StmtList([all @calls])]):
+      for call in calls: 
+          tryGetRules(scToIdx, scToRules, call)
+  else:
+      raise newException(Exception, "I do not understand the syntax " & astGenRepr sections)
+
+  when defined(leximVerbose):
+    for sc, idx in scToIdx:
+      echo "sc=" & sc & ", idx=" & $idx
+    for sc, rules in scToRules:
+      echo "sc=" & $sc & ",rules=" & repr rules
+
+  # dfa generation 
+  var scToDfa : seq[tuple[sc: int, dfa: DFA]] 
   let isCString = s.getType.typeKind == ntyCString
-  when defined(leximSkipLexe):
-    var bigRe: PRegExpr = nil
-    var rule = 1
-    for sec in sections.children:
-      expectKind sec, nnkOfBranch
-      expectLen sec, 2
-      if sec[0].kind in nnkStrLit..nnkTripleStrLit:
-        let rex = parseRegExpr(sec[0].strVal, findMacro,
-                              {reNoCaptures, reNoBackrefs})
-        rex.rule = rule
+  for scIdx, rules in scToRules.pairs():
+    when defined(leximSkipLexe):
+      var bigRe: PRegExpr = nil
+      var ruleIdx = 1
+      for rule in rules:
+        let rex = parseRegExpr(rule.regex, findMacro,
+                                {reNoCaptures, reNoBackrefs})
+        rex.rule = ruleIdx
         if bigRe.isNil: bigRe = rex
         else: bigRe = altExpr(bigRe, rex)
-      else:
-        error("Expected a node of kind nnkStrLit, got " & $sec[0].kind)
-      inc rule
+      var n: NFA
+      var d, o: DFA
+      regExprToNFA(bigRe, n)
+      let alph = fullAlphabet(n)
+      NFA_to_DFA(n, d, alph)
+      optimizeDFA(d, o, alph)
+      scToDfa.add (scIdx, o)
+    else:
+      # use 'lexe.exe' helper program in order to speedup lexer generation
+      var res: seq[string] = @[]
+      for rule in rules:
+        res.add rule.regex
+      let data = $$res
+      writeFile("lexe.input", data)
+      let o = to[DFA](staticExec(/."lexe", input="", cache=data))
+      scToDfa.add (scIdx, o)
 
-    var n: NFA
-    var d, o: DFA
-    regExprToNFA(bigRe, n)
-    let alph = fullAlphabet(n)
-    NFA_to_DFA(n, d, alph)
-    optimizeDFA(d, o, alph)
-    result = genMatcher(o, s, pos, sections, isCString)
-  else:
-    # use 'lexe.exe' helper program in order to speedup lexer generation
-    var res: seq[string] = @[]
-    for sec in sections.children:
-      expectKind sec, nnkOfBranch
-      expectLen sec, 2
-      if sec[0].kind in nnkStrLit..nnkTripleStrLit:
-        res.add sec[0].strVal
-      else:
-        error("Expected a node of kind nnkStrLit, got " & $sec[0].kind)
 
-    let data = $$res
-    writeFile("lexe.input", data)
-    let o = to[DFA](staticExec(/."lexe", input="", cache=data))
-    result = genMatcher(o, s, pos, sections, isCString)
-  echo repr result
-
-when isMainModule: # defined(testing):
-  var input = "the 0909 else input elif elseo end"
-  let asc = input.cstring
-  var pos = 0
-  while pos < input.len:
-    let oldPos = pos
-    match input, pos:
-    of r"\d+": echo "an integer ", input.substr(oldPos, pos-1), "##"
-    of "else": echo "an ELSE"
-    of "elif": echo "an ELIF"
-    of "end": echo "an END"
-    of r"[a-zA-Z_]\w+": echo "an identifier ", input.substr(oldPos, pos-1), "##"
-    of r".": echo "something else ", input.substr(oldPos, pos-1), "##"
+  # generate the nested goto's.
+  # because states for individual DFA start at 1, are used for jump labels, 
+  # but we have multiple DFA, so we have to track a global label offset. 
+  var labelOffset = scToIdx.len
+  # pos intentionally exposed to user action code 
+  var pos = ident("pos")
+  # oldPos intentionally exposed to user action code 
+  var oldPos = ident("oldPos")
+  
+  var curSc = genSym(nskVar, "curSc") 
+  var caseStmt = newNimNode(nnkCaseStmt)
+  caseStmt.add curSc
+  for _, (sc, dfa) in scToDfa:
+    let g : NimNode = newGenMatcher(scToIdx, curSc, dfa, s, pos, scToRules[sc], isCString, labelOffset)
+    caseStmt.add newTree(nnkOfBranch, newLit(sc), g)
+  let curScUpperBoundInclusive = scToIdx.len-1
+  # far less brain damaging to write than the eqv in AST 
+  result = quote do:
+      var `pos` = 0 
+      var `curSc` : range[0..`curScUpperBoundInclusive`] = 0
+      while `pos` < `s`.len:
+        let `oldPos` = `pos` 
+        while true:
+          {.computedGoto.}
+          `caseStmt`
+  echo repr result 

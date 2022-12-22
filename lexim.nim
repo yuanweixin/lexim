@@ -90,6 +90,13 @@ proc replaceBeginState(scToIdx: var Table[string,int], curSc, n:NimNode) : NimNo
                 curSc,
                 newLit(scToIdx[sc.strVal])
             )
+    of Call([Ident(strVal: "beginState"), Ident(strVal: @statename)]):
+        if statename notin scToIdx:
+          raise newException(Exception, "Unknown state: " & statename)
+        result = nnkAsgn.newTree(
+                curSc,
+                newLit(scToIdx[statename])
+            )
     else:
         return n 
 

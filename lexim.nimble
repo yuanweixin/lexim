@@ -7,7 +7,7 @@ license = "MIT"
 srcDir        = "src"
 installExt    = @["nim"]
 
-bin = @["lexe"] 
+bin = @["lexim/lexe"] 
 
 requires "nim >= 1.6.8"
 requires "fusion"

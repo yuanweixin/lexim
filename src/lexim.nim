@@ -216,8 +216,9 @@ template dfagen() {.dirty.} =
         res.add rule.regex
       let data = $$res
       let lexeOut = staticExec("lexe", input=data, cache=data)
-      echo "lexe output (from regex construction):"
-      echo lexeOut
+      when defined(leximVerbose):
+        echo "lexe output (from regex construction):"
+        echo lexeOut
       # for reasons unknown, can't catch exceptions from the call. it would
       # just crash the compiler. so, just rely on the previous lines to get 
       # the hint that something went wrong. 
@@ -262,8 +263,9 @@ template codegen() {.dirty.} =
         let `oldPos` = `pos` 
         while true:
           {.computedGoto.}
-          `caseStmt`  
-  echo repr result 
+          `caseStmt`
+  when defined(leximVerbose):
+    echo repr result 
 
 macro match*(isCString: bool, lexerStateTName, tokenTName, procName: untyped, sections: varargs[untyped]): untyped =
   dslparse()

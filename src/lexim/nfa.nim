@@ -11,7 +11,7 @@ import
   regexprs
 
 const
-  maxLabel* = 255
+  maxLabel* = 512
 
 type
   Alphabet* = object

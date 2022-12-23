@@ -171,7 +171,6 @@ proc tryGetRules(scToIdx: var Table[string,int], scToRules: var OrderedTable[int
     else:
         raise newException(Exception, "I do not understand the syntax of " & astGenRepr n)
 
-import osproc 
 macro match*(s: cstring|string; sections: varargs[untyped]): untyped =
   # dsl parsing 
   # insertion order matters for generating the goto
@@ -218,9 +217,14 @@ macro match*(s: cstring|string; sections: varargs[untyped]): untyped =
       for rule in rules:
         res.add rule.regex
       let data = $$res
-      let o = to[DFA](staticExec("lexe", input=data, cache=data))
+      let lexeOut = staticExec("lexe", input=data, cache=data)
+      echo "lexe output (from regex construction):"
+      echo lexeOut
+      # for reasons unknown, can't catch exceptions from the call. it would
+      # just crash the compiler. so, just rely on the previous lines to get 
+      # the hint that something went wrong. 
+      let o = to[DFA](lexeOut)
       scToDfa.add (scIdx, o)
-
 
   # generate the nested goto's.
   # because states for individual DFA start at 1, are used for jump labels, 

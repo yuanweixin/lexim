@@ -13,6 +13,7 @@ import std/tables
 {.experimental: "caseStmtMacros".}
 import fusion/matching
 import std/sugar
+import os 
 
 export nfa
 export regexprs
@@ -170,6 +171,7 @@ proc tryGetRules(scToIdx: var Table[string,int], scToRules: var OrderedTable[int
     else:
         raise newException(Exception, "I do not understand the syntax of " & astGenRepr n)
 
+import osproc 
 macro match*(s: cstring|string; sections: varargs[untyped]): untyped =
   # dsl parsing 
   # insertion order matters for generating the goto
@@ -216,8 +218,7 @@ macro match*(s: cstring|string; sections: varargs[untyped]): untyped =
       for rule in rules:
         res.add rule.regex
       let data = $$res
-      writeFile("lexe.input", data)
-      let o = to[DFA](staticExec(/."lexe", input="", cache=data))
+      let o = to[DFA](staticExec("lexe", input=data, cache=data))
       scToDfa.add (scIdx, o)
 
 

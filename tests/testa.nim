@@ -1,5 +1,5 @@
 
-import nfa, regexprs, listing, codegen
+import lexim/nfa, lexim/regexprs, lexim/listing, codegen
 
 proc initExample2(a: var NFA) =
   regexprs.addMacro("IDENT", parseRegExpr("[a-zA-Z_]"))

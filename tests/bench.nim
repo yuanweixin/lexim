@@ -1,13 +1,11 @@
-
-import nfa, regexprs, listing
 from strutils import find
 
 const
   asRegex = ".*[Pp]leasuring"
 
-import vm
 from times import cpuTime
 
+import lexim/vm
 var bc = vm.re(asRegex)
 echo "code ", bc.code.len, " data: ", bc.data.len
 
@@ -16,18 +14,17 @@ template bench(text, doWork: untyped) =
   doWork
   echo text, " took [s] ", cpuTime() - t0
 
-import re, strutils
+import re
 
 let thaRe = re.re("[Pp]leasuring", {reDotAll, reStudy})
 
 import lexim
+
 proc lex(input: string): int =
-  var pos = 0
-  while pos < input.len:
-    lexim.match input, pos:
-    of r"[Pp]leasuring":
+  lexim.match input:
+    r"[Pp]leasuring":
       return pos
-    of r".":
+    r".":
       discard
   return -1
 
@@ -48,7 +45,7 @@ proc pegs(input: string): int =
   return if r.ok: r.matchLen else: -1
 
 proc main =
-  let inp = readFile("benchdata.txt")
+  let inp = readFile("tests/benchdata.txt")
   when true:
     bench "vm 1":
       for i in 1..100:
@@ -62,9 +59,9 @@ proc main =
       for i in 1..100:
         discard find(inp, "pleasuring")
 
-    bench "lexer":
-      for i in 1..100:
-        discard lex(inp)
+    # bench "lexer":
+    #   for i in 1..100:
+    #     discard lex(inp)
 
     bench "scanp":
       for i in 1..100:
@@ -77,7 +74,7 @@ proc main =
     echo matchLen(inp, bc)
     echo re.find(inp, thaRe)+len"pleasuring"
     echo find(inp, "pleasuring")+len"pleasuring"
-    echo lex(inp) # +len"pleasuring"
+    # echo lex(inp) # +len"pleasuring"
     echo scan(inp) # +len"pleasuring"
     echo pegs(inp) # +len"pleasuring"
 

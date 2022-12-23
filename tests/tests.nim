@@ -1,5 +1,5 @@
 
-import vm
+import lexim/vm
 
 doAssert match("(a b c)", re"\( .* \)")
 doAssert match("while", re("while"))

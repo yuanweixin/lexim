@@ -17,13 +17,25 @@ an END'''
 
 import lexim
 
+type LexState = object 
+  strBody : string 
+  commentDepth : int 
+
+type Token = object 
+  thing : int 
+
+match false, LexState, Token, lex:
+  r"\d+": echo "an integer ", input.substr(oldPos, pos-1), "##"
+  "else": echo "an ELSE"
+  "elif": echo "an ELIF"
+  "end": echo "an END"
+  r"[a-zA-Z_]\w+": echo "an identifier ", input.substr(oldPos, pos-1), "##"
+  r".": echo "something else ", input.substr(oldPos, pos-1), "##"
+
 proc main =
   var input = "the 0909 else input elif elseo end"
-  match input:
-    r"\d+": echo "an integer ", input.substr(oldPos, pos-1), "##"
-    "else": echo "an ELSE"
-    "elif": echo "an ELIF"
-    "end": echo "an END"
-    r"[a-zA-Z_]\w+": echo "an identifier ", input.substr(oldPos, pos-1), "##"
-    r".": echo "something else ", input.substr(oldPos, pos-1), "##"
+  var lexState = LexState(strBody:"", commentDepth:0)
+  for thing in lex(input, lexState):
+    discard
+
 main()

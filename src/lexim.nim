@@ -149,9 +149,6 @@ proc newGenMatcher(scToIdx : var Table[string, int], curSc: NimNode, a: DFA; s, 
   result.add nnkBreakStmt.newTree(newEmptyNode())
   labelOffset += a.stateCount 
   
-template `/.`(x: string): string =
-  (when defined(posix): "./" & x else: x)
-
 proc tryGetRules(scToIdx: var Table[string,int], scToRules: var OrderedTable[int,seq[Rule]], n : NimNode) = 
     case n 
     of Call([Ident(strVal: @startCondition), StmtList([all @callList])]):
@@ -171,8 +168,8 @@ proc tryGetRules(scToIdx: var Table[string,int], scToRules: var OrderedTable[int
     else:
         raise newException(Exception, "I do not understand the syntax of " & astGenRepr n)
 
-macro match*(s: cstring|string; sections: varargs[untyped]): untyped =
-  # dsl parsing 
+template dslparse() {.dirty.} = 
+# dsl parsing 
   # insertion order matters for generating the goto
   var scToRules = initOrderedTable[int, seq[Rule]]() 
   var scToIdx = initTable[string,int]() 
@@ -191,9 +188,10 @@ macro match*(s: cstring|string; sections: varargs[untyped]): untyped =
     for sc, rules in scToRules:
       echo "sc=" & $sc & ",rules=" & repr rules
 
+template dfagen() {.dirty.} = 
   # dfa generation 
   var scToDfa : seq[tuple[sc: int, dfa: DFA]] 
-  let isCString = s.getType.typeKind == ntyCString
+  # we would have to generate a different version for cstring support. 
   for scIdx, rules in scToRules.pairs():
     when defined(leximSkipLexe):
       var bigRe: PRegExpr = nil
@@ -226,29 +224,49 @@ macro match*(s: cstring|string; sections: varargs[untyped]): untyped =
       let o = to[DFA](lexeOut)
       scToDfa.add (scIdx, o)
 
+template codegen() {.dirty.} = 
   # generate the nested goto's.
   # because states for individual DFA start at 1, are used for jump labels, 
   # but we have multiple DFA, so we have to track a global label offset. 
   var labelOffset = scToIdx.len
   # pos intentionally exposed to user action code 
-  var pos = ident("pos")
+  let pos = ident("pos")
   # oldPos intentionally exposed to user action code 
-  var oldPos = ident("oldPos")
+  let oldPos = ident("oldPos")
+  let input = ident("input")
+  let lexState = ident("lexState")
+  let curSc = genSym(nskVar, "curSc") 
+  let caseStmt = newNimNode(nnkCaseStmt)
   
-  var curSc = genSym(nskVar, "curSc") 
-  var caseStmt = newNimNode(nnkCaseStmt)
+  # case `curSc`: 
   caseStmt.add curSc
+  
+  let isCstr = newLit(true) == isCString
   for _, (sc, dfa) in scToDfa:
-    let g : NimNode = newGenMatcher(scToIdx, curSc, dfa, s, pos, scToRules[sc], isCString, labelOffset)
+    let g : NimNode = newGenMatcher(scToIdx, curSc, dfa, input, pos, scToRules[sc], isCstr, labelOffset)
     caseStmt.add newTree(nnkOfBranch, newLit(sc), g)
+
+  # TODO don't need this once we collapse sc into 1 state number space 
   let curScUpperBoundInclusive = scToIdx.len-1
+
+  let inputStrType = if isCstr: ident("cstring") else: ident("string")
   # far less brain damaging to write than the eqv in AST 
+  # this needs to be a closure iterator because otherwise it would inline, try
+  # to generate identical goto labels in the same compilation unit and break
+  # compilation
   result = quote do:
+    iterator `procName`*(`input`: `inputStrType`, `lexState`: var `lexerStateTName`) : `tokenTName` {.closure.} = 
       var `pos` = 0 
       var `curSc` : range[0..`curScUpperBoundInclusive`] = 0
-      while `pos` < `s`.len:
+      while `pos` < `input`.len:
         let `oldPos` = `pos` 
         while true:
           {.computedGoto.}
-          `caseStmt`
+          `caseStmt`  
   echo repr result 
+
+macro match*(isCString: bool, lexerStateTName, tokenTName, procName: untyped, sections: varargs[untyped]): untyped =
+  dslparse()
+  dfagen()
+  codegen()
+  

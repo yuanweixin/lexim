@@ -20,14 +20,12 @@ let thaRe = re.re("[Pp]leasuring", {reDotAll, reStudy})
 
 import lexim
 
-proc lex(input: string): int =
-  lexim.match input:
+lexim.match false, int, int, lex:
     r"[Pp]leasuring":
-      return pos
+      yield pos
     r".":
       discard
-  return -1
-
+  
 import std/strscans
 proc scan(input: string): int =
   var pos = 0
@@ -60,8 +58,10 @@ proc main =
         discard find(inp, "pleasuring")
 
     bench "lexer":
+      var res = -1 
       for i in 1..100:
-        discard lex(inp)
+        for nextp in lex(inp, res):
+          break 
 
     bench "scanp":
       for i in 1..100:
@@ -74,7 +74,10 @@ proc main =
     echo matchLen(inp, bc)
     echo re.find(inp, thaRe)+len"pleasuring"
     echo find(inp, "pleasuring")+len"pleasuring"
-    echo lex(inp) # +len"pleasuring"
+    var pos = -1 
+    for nextp in lex(inp, pos):
+      echo $nextp
+      break
     echo scan(inp) # +len"pleasuring"
     echo pegs(inp) # +len"pleasuring"
 

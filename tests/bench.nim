@@ -59,9 +59,9 @@ proc main =
       for i in 1..100:
         discard find(inp, "pleasuring")
 
-    # bench "lexer":
-    #   for i in 1..100:
-    #     discard lex(inp)
+    bench "lexer":
+      for i in 1..100:
+        discard lex(inp)
 
     bench "scanp":
       for i in 1..100:
@@ -74,7 +74,7 @@ proc main =
     echo matchLen(inp, bc)
     echo re.find(inp, thaRe)+len"pleasuring"
     echo find(inp, "pleasuring")+len"pleasuring"
-    # echo lex(inp) # +len"pleasuring"
+    echo lex(inp) # +len"pleasuring"
     echo scan(inp) # +len"pleasuring"
     echo pegs(inp) # +len"pleasuring"
 

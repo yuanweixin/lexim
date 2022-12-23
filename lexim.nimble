@@ -1,9 +1,12 @@
-
+version       = "1.0.0"
+author        = "Wei Xin Yuan"
+description   = "lexer library based on the original version by Andreas Rumpf"
 version = "1.0"
 license = "MIT"
 
 srcDir        = "src"
 installExt    = @["nim"]
+
 bin = @["lexe"] 
 
 requires "nim >= 1.6.8"

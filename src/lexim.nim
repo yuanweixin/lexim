@@ -72,50 +72,39 @@ type Rule = object
     regex : string 
     actions : NimNode 
 
-proc replaceBeginState(scToIdx: var Table[string,int], curSc, n:NimNode) : NimNode = 
+proc replaceBeginState(curSc: NimNode, scStartStatesOffsetted: seq[int], scToIdx: var Table[string,int], state, n:NimNode) : NimNode = 
     case n 
     of StmtList[all @stmts]:
         let nodes = collect(newSeq):
-            for stmt in stmts: replaceBeginState(scToIdx, curSc, stmt)
+            for stmt in stmts: replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, stmt)
         return newStmtList(nodes)
     of ElifBranch([@cond, @stmtList]):
-        return newTree(nnkElifBranch, cond, replaceBeginState(scToIdx, curSc, stmtList))
+        return newTree(nnkElifBranch, cond, replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, stmtList))
     of Else([@stmtList]):
-        return newTree(nnkElse, replaceBeginState(scToIdx, curSc, stmtList))
+        return newTree(nnkElse, replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, stmtList))
     of IfStmt[all @branches]:
         # newIfStmt requires tuples, very annoying to use, so I will just do a nested match here. 
         let newBranches = collect(newSeq):
-            for branch in branches: replaceBeginState(scToIdx, curSc, branch)
+            for branch in branches: replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, branch)
         return newTree(nnkIfStmt, newBranches)            
     of Call([Ident(strVal: "beginState"), @sc is (kind: in nnkStrKinds)]):
         if sc.strVal notin scToIdx:
           raise newException(Exception, "Unknown state: " & sc.strVal)
-        result = nnkAsgn.newTree(
-                curSc,
-                newLit(scToIdx[sc.strVal])
-            )
+        let startState = scStartStatesOffsetted[scToIdx[sc.strVal]]
+        result = quote do:
+          `curSc` = `startState`
     of Call([Ident(strVal: "beginState"), Ident(strVal: @statename)]):
         if statename notin scToIdx:
           raise newException(Exception, "Unknown state: " & statename)
-        result = nnkAsgn.newTree(
-                curSc,
-                newLit(scToIdx[statename])
-            )
+        let startState = scStartStatesOffsetted[scToIdx[statename]]
+        result = quote do:
+          `curSc` = `startState`
     else:
         return n 
 
-proc newGenMatcher(scToIdx : var Table[string, int], curSc: NimNode, a: DFA; s, i: NimNode, rules: seq[Rule]; isCString: bool, labelOffset: var int): NimNode {.compileTime.} =
-  ## curSc: the genSym'ed variable we use to track current start condition
-  let state = genSym(nskVar, "state")
-  result = newStmtList()
-  result.add newVarStmt(newTree(nnkPragmaExpr, state,
-                          newTree(nnkPragma, ident"goto")),
-                        newTree(nnkBracketExpr, bindSym"range",
-                          newRange(newLit(1+labelOffset), newLit(a.stateCount+labelOffset))),
-                        newLit(a.startState+labelOffset))
-  var caseStmt = newNimNode(nnkCaseStmt)
-  caseStmt.add state
-  result.add newTree(nnkWhileStmt, bindSym"true", caseStmt)
+proc genMatcher(state: NimNode, scStartStatesOffsetted: seq[int], scToIdx : var Table[string, int], curSc: NimNode, a: DFA; s, i: NimNode, rules: seq[Rule]; isCString: bool, labelOffset: var int, caseStmt: NimNode) {.compileTime.} =
+  ## curSc: the genSym'ed variable track cur start cond's start state. 
+  ## state: the genSym'ed variable for cur state inside the while loop. 
   for src in countup(1, a.stateCount):
     let rule = getRule(a, src)
     var ifStmt = newNimNode(nnkIfStmt)
@@ -134,7 +123,7 @@ proc newGenMatcher(scToIdx : var Table[string, int], curSc: NimNode, a: DFA; s, 
           doAssert false, "not supported " & $ot.kind
     let actions = 
       if rule >= 1:
-        let actions = replaceBeginState(scToIdx, curSc, rules[rule-1].actions)
+        let actions = replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, rules[rule-1].actions)
         newStmtList(actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty)))
       else:
         newTree(nnkBreakStmt, newNimNode(nnkEmpty))
@@ -143,20 +132,16 @@ proc newGenMatcher(scToIdx : var Table[string, int], curSc: NimNode, a: DFA; s, 
     else:
       ifStmt.add newTree(nnkElse, actions)
       caseStmt.add newTree(nnkOfBranch, newLit(src+labelOffset), ifStmt)
-  # need to insert a break statement for when we break out of this inner while loop to break
-  # out of the outer while loop, because we should have recognized the longest match on this 
-  # dfa to be out of its loop, and have not switched the start condition. 
-  result.add nnkBreakStmt.newTree(newEmptyNode())
   labelOffset += a.stateCount 
   
-proc tryGetRules(scToIdx: var Table[string,int], scToRules: var OrderedTable[int,seq[Rule]], n : NimNode) = 
+proc tryGetRules(scToIdx: var Table[string,int], scToRules: var seq[seq[Rule]], n : NimNode) = 
     case n 
     of Call([Ident(strVal: @startCondition), StmtList([all @callList])]):
         for call in callList:
             case call
             of Call([@lit is (kind: in nnkStrKinds), @stmt is StmtList()]):
                 if startCondition notin scToIdx:
-                    scToRules[scToIdx.len] = @[]
+                    scToRules.add @[]
                     scToIdx[startCondition] = scToIdx.len 
                 let scIdx = scToIdx[startCondition]
                 scToRules[scIdx].add Rule(startCondition: startCondition, regex:lit.strVal, actions: stmt)
@@ -169,12 +154,13 @@ proc tryGetRules(scToIdx: var Table[string,int], scToRules: var OrderedTable[int
         raise newException(Exception, "I do not understand the syntax of " & astGenRepr n)
 
 template dslparse() {.dirty.} = 
-# dsl parsing 
-  # insertion order matters for generating the goto
-  var scToRules = initOrderedTable[int, seq[Rule]]() 
+  # dsl parsing 
+  var scToRules : seq[seq[Rule]] 
   var scToIdx = initTable[string,int]() 
+  # for sanity, initial start condition always gets the lower ordinal.
   scToIdx[initialStartCondition] = 0
-  scToRules[0] = @[]
+  scToRules.add @[]
+
   case sections 
   of ArgList([StmtList([all @calls])]):
       for call in calls: 
@@ -190,9 +176,9 @@ template dslparse() {.dirty.} =
 
 template dfagen() {.dirty.} = 
   # dfa generation 
-  var scToDfa : seq[tuple[sc: int, dfa: DFA]] 
+  var dfas : seq[DFA] 
   # we would have to generate a different version for cstring support. 
-  for scIdx, rules in scToRules.pairs():
+  for scIdx, rules in scToRules:
     when defined(leximSkipLexe):
       var bigRe: PRegExpr = nil
       var ruleIdx = 1
@@ -208,7 +194,7 @@ template dfagen() {.dirty.} =
       let alph = fullAlphabet(n)
       NFA_to_DFA(n, d, alph)
       optimizeDFA(d, o, alph)
-      scToDfa.add (scIdx, o)
+      dfas.add o
     else:
       # use 'lexe.exe' helper program in order to speedup lexer generation
       var res: seq[string] = @[]
@@ -223,32 +209,37 @@ template dfagen() {.dirty.} =
       # just crash the compiler. so, just rely on the previous lines to get 
       # the hint that something went wrong. 
       let o = to[DFA](lexeOut)
-      scToDfa.add (scIdx, o)
+      dfas.add o
 
 template codegen() {.dirty.} = 
-  # generate the nested goto's.
-  # because states for individual DFA start at 1, are used for jump labels, 
-  # but we have multiple DFA, so we have to track a global label offset. 
-  var labelOffset = scToIdx.len
-  # pos intentionally exposed to user action code 
+  # because states for individual DFA fall in the range(1..numStates)
+  # but we have multiple DFA, so keep running count of states added so far 
+  # incremented once for each dfa processed. 
+  var labelOffset = 0
+  # pos, oldPos, input, lexState intentionally exposed to user action code 
   let pos = ident("pos")
-  # oldPos intentionally exposed to user action code 
   let oldPos = ident("oldPos")
   let input = ident("input")
   let lexState = ident("lexState")
-  let curSc = genSym(nskVar, "curSc") 
-  let caseStmt = newNimNode(nnkCaseStmt)
-  
-  # case `curSc`: 
-  caseStmt.add curSc
-  
-  let isCstr = newLit(true) == isCString
-  for _, (sc, dfa) in scToDfa:
-    let g : NimNode = newGenMatcher(scToIdx, curSc, dfa, input, pos, scToRules[sc], isCstr, labelOffset)
-    caseStmt.add newTree(nnkOfBranch, newLit(sc), g)
 
-  # TODO don't need this once we collapse sc into 1 state number space 
-  let curScUpperBoundInclusive = scToIdx.len-1
+  let curSc = genSym(nskVar, "curSc")  
+  let state = genSym(nskVar, "state")
+
+  var stateCnt = 0 
+  var scStartStatesOffsetted: seq[int]
+  for dfa in dfas:
+    scStartStatesOffsetted.add stateCnt + dfa.startState
+    stateCnt += dfa.stateCount
+  when defined(leximVerbose):
+    echo "scStartStatesOffsetted:"
+    echo $scStartStatesOffsetted
+
+  let initScStartState = dfas[0].startState
+  let caseStmt = newNimNode(nnkCaseStmt)
+  caseStmt.add state
+  let isCstr = newLit(true) == isCString
+  for sc, dfa in dfas:
+    genMatcher(state, scStartStatesOffsetted, scToIdx, curSc, dfa, input, pos, scToRules[sc], isCstr, labelOffset, caseStmt)
 
   let inputStrType = if isCstr: ident("cstring") else: ident("string")
   # far less brain damaging to write than the eqv in AST 
@@ -257,15 +248,15 @@ template codegen() {.dirty.} =
   # compilation
   result = quote do:
     iterator `procName`*(`input`: `inputStrType`, `lexState`: var `lexerStateTName`) : `tokenTName` {.closure.} = 
+      var `state` {.goto.} : range[1..`stateCnt`] 
+      var `curSc` : range[1..`stateCnt`] = `initScStartState`
       var `pos` = 0 
-      var `curSc` : range[0..`curScUpperBoundInclusive`] = 0
       while `pos` < `input`.len:
         let `oldPos` = `pos` 
+        `state` = `curSc`     
         while true:
-          {.computedGoto.}
           `caseStmt`
-  when defined(leximVerbose):
-    echo repr result 
+  echo repr result
 
 macro match*(isCString: bool, lexerStateTName, tokenTName, procName: untyped, sections: varargs[untyped]): untyped =
   dslparse()

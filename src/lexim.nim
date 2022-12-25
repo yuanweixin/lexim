@@ -145,6 +145,8 @@ proc tryGetRules(scToIdx: var Table[string,int], scToRules: var seq[seq[Rule]], 
                     scToIdx[startCondition] = scToIdx.len 
                 let scIdx = scToIdx[startCondition]
                 scToRules[scIdx].add Rule(startCondition: startCondition, regex:lit.strVal, actions: stmt)
+            of CommentStmt():
+                discard 
             else:
                 raise newException(Exception, "Unable to understand the start condition call with this AST repr " & astGenRepr call)
     of Call([@lit is (kind: in nnkStrKinds), @stmt is StmtList()]):
@@ -266,7 +268,7 @@ macro match(isCString: bool, lexerStateTName, tokenTName, procName, sections: un
   codegen()
   
 macro genStringMatcher*(name, body : untyped) : untyped = 
-  echo astGenRepr name
+  echo astGenRepr body
   case name:
   of BracketExpr([@procName is Ident(), @lexerStateT is Ident(), @tokenT is Ident()]):
     result = quote do:

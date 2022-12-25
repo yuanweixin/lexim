@@ -50,6 +50,6 @@ Textbook would say dfa should give the longest match. This lib does not actually
 
 For example, say pattern is `a|aaa|b`, and we are given "aab". It would actually only recognize "b", reason being it reads 'a', reads another 'a', then sees the next char is not 'a', but does not backtrack its position, and so the next char ends up being 'b', which matches 'b'. 
 
-This may look incorrect, but in practice in programming langauges, this likely doesn't affect correctness, as long as you do not have patterns that share a prefix that could trigger this behavior (e.g. a "<<<" operator and a "<" operator but given "<<b"). 
+This may look incorrect, but in practice in programming langauges, this likely doesn't affect correctness, as long as you do not have patterns that share a prefix that could trigger this behavior (e.g. pat="<<<|<|b" and given "<<b"). If we just do string recognition, it's easy to patch up the code (just track the last match position), But if we want to run arbitrary actions, then it would be a more involved change to implement that fallback. 
 
   

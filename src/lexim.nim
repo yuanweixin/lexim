@@ -150,6 +150,8 @@ proc tryGetRules(scToIdx: var Table[string,int], scToRules: var seq[seq[Rule]], 
     of Call([@lit is (kind: in nnkStrKinds), @stmt is StmtList()]):
         let scIdx = scToIdx[initialStartCondition]
         scToRules[scIdx].add Rule(startCondition: initialStartCondition, regex:lit.strVal, actions:stmt)
+    of CommentStmt():
+        discard
     else:
         raise newException(Exception, "I do not understand the syntax of " & astGenRepr n)
 
@@ -162,7 +164,7 @@ template dslparse() {.dirty.} =
   scToRules.add @[]
 
   case sections 
-  of ArgList([StmtList([all @calls])]):
+  of StmtList([all @calls]):
       for call in calls: 
           tryGetRules(scToIdx, scToRules, call)
   else:
@@ -258,7 +260,7 @@ template codegen() {.dirty.} =
           `caseStmt`
   echo repr result
 
-macro match(isCString: bool, lexerStateTName, tokenTName, procName: untyped, sections: varargs[untyped]): untyped =
+macro match(isCString: bool, lexerStateTName, tokenTName, procName, sections: untyped): untyped =
   dslparse()
   dfagen()
   codegen()

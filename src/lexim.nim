@@ -258,8 +258,25 @@ template codegen() {.dirty.} =
           `caseStmt`
   echo repr result
 
-macro match*(isCString: bool, lexerStateTName, tokenTName, procName: untyped, sections: varargs[untyped]): untyped =
+macro match(isCString: bool, lexerStateTName, tokenTName, procName: untyped, sections: varargs[untyped]): untyped =
   dslparse()
   dfagen()
   codegen()
   
+macro genStringMatcher*(name, body : untyped) : untyped = 
+  echo astGenRepr name
+  case name:
+  of BracketExpr([@procName is Ident(), @lexerStateT is Ident(), @tokenT is Ident()]):
+    result = quote do:
+      match(false, `lexerStateT`, `tokenT`, `procName`, `body`)
+  else:
+    raise newException(Exception, "Expected procName[<LexerStateType>, <TokenType>] but got " & repr name)
+
+macro genCStringMatcher*(name, body : untyped) : untyped = 
+  echo astGenRepr name
+  case name:
+  of BracketExpr([@procName is Ident(), @lexerStateT is Ident(), @tokenT is Ident()]):
+    result = quote do:
+      match(true, `lexerStateT`, `tokenT`, `procName`, `body`)
+  else:
+    raise newException(Exception, "Expected procName[<LexerStateType>, <TokenType>] but got " & repr name)

@@ -24,7 +24,7 @@ type LexState = object
 type Token = object 
   thing : int 
 
-match false, LexState, Token, lex:
+genStringMatcher lex[LexState, Token]:
   r"\d+": echo "an integer ", input.substr(oldPos, pos-1), "##"
   "else": echo "an ELSE"
   "elif": echo "an ELIF"
@@ -39,3 +39,4 @@ proc main =
     discard
 
 main()
+

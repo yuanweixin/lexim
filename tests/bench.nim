@@ -20,7 +20,7 @@ let thaRe = re.re("[Pp]leasuring", {reDotAll, reStudy})
 
 import lexim
 
-lexim.match false, int, int, lex:
+lexim.genStringMatcher lex[int, int]:
     r"[Pp]leasuring":
       yield pos
     r".":

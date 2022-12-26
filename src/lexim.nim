@@ -67,42 +67,51 @@ proc nextState(i, state: NimNode; dest: int): NimNode {.compileTime.} =
 
 
 const initialStartCondition = "initial"
-type Rule = object 
+type 
+  Rule = object 
     startCondition : string 
     regex : string 
     actions : NimNode 
 
-proc replaceBeginState(curSc: NimNode, scStartStatesOffsetted: seq[int], scToIdx: var Table[string,int], state, n:NimNode) : NimNode = 
+  CodegenCtx = object 
+    scStartOffsets : seq[int]
+    scToIdx: Table[string,int]
+    scToRules : seq[seq[Rule]]
+    dfas : seq[DFA]
+    labelOffset: int 
+    ruleToAdditionalCaseBranches : OrderedTable[int, (int,NimNode)] # table because multiple accept states can exist for a single rule. The value is (caseLabel, NimNode), the caseLabel needs to be tracked because we need that for jumps from accept states with outgoing transitions. 
+
+proc replaceBeginState(curSc: NimNode, ctx: var CodegenCtx, state, n:NimNode) : NimNode = 
     case n 
     of StmtList[all @stmts]:
         let nodes = collect(newSeq):
-            for stmt in stmts: replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, stmt)
+            for stmt in stmts: replaceBeginState(curSc, ctx, state, stmt)
         return newStmtList(nodes)
     of ElifBranch([@cond, @stmtList]):
-        return newTree(nnkElifBranch, cond, replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, stmtList))
+        return newTree(nnkElifBranch, cond, replaceBeginState(curSc, ctx, state, stmtList))
     of Else([@stmtList]):
-        return newTree(nnkElse, replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, stmtList))
+        return newTree(nnkElse, replaceBeginState(curSc, ctx, state, stmtList))
     of IfStmt[all @branches]:
         # newIfStmt requires tuples, very annoying to use, so I will just do a nested match here. 
         let newBranches = collect(newSeq):
-            for branch in branches: replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, branch)
+            for branch in branches: replaceBeginState(curSc, ctx, state, branch)
         return newTree(nnkIfStmt, newBranches)            
     of Call([Ident(strVal: "beginState"), @sc is (kind: in nnkStrKinds)]):
-        if sc.strVal notin scToIdx:
+        if sc.strVal notin ctx.scToIdx:
           raise newException(Exception, "Unknown state: " & sc.strVal)
-        let startState = scStartStatesOffsetted[scToIdx[sc.strVal]]
+        let startState = ctx.scStartOffsets[ctx.scToIdx[sc.strVal]]
         result = quote do:
           `curSc` = `startState`
     of Call([Ident(strVal: "beginState"), Ident(strVal: @statename)]):
-        if statename notin scToIdx:
+        if statename notin ctx.scToIdx:
           raise newException(Exception, "Unknown state: " & statename)
-        let startState = scStartStatesOffsetted[scToIdx[statename]]
+        let startState = ctx.scStartOffsets[ctx.scToIdx[statename]]
         result = quote do:
           `curSc` = `startState`
     else:
         return n 
 
-proc genMatcher(state: NimNode, scStartStatesOffsetted: seq[int], scToIdx : var Table[string, int], curSc: NimNode, a: DFA; s, i: NimNode, rules: seq[Rule]; isCString: bool, labelOffset: var int, caseStmt: NimNode) {.compileTime.} =
+proc genMatcher(state: NimNode, ctx: var CodegenCtx, curSc: NimNode, a: DFA; s, i: NimNode, rules: seq[Rule]; isCString: bool, caseStmt: NimNode, stateCnt: int, lastAccPos, lastAccStateAction: NimNode) {.compileTime.} =
   ## curSc: the genSym'ed variable track cur start cond's start state. 
   ## state: the genSym'ed variable for cur state inside the while loop. 
   for src in countup(1, a.stateCount):
@@ -113,62 +122,82 @@ proc genMatcher(state: NimNode, scStartStatesOffsetted: seq[int], scToIdx : var 
       if cs != {}:
         ifStmt.add newTree(nnkElifBranch,
                            getCmp(s, i, cs, isCString),
-                           nextState(i, state, dest+labelOffset))
+                           nextState(i, state, dest+ctx.labelOffset))
       for ot in others:
         if ot.kind == reChar:
           ifStmt.add newTree(nnkElifBranch,
                              getSpecial(s, i, ot, isCString),
-                             nextState(i, state, dest+labelOffset))
+                             nextState(i, state, dest+ctx.labelOffset))
         else:
           doAssert false, "not supported " & $ot.kind
+    var caseLabel : int 
     let actions = 
       if rule >= 1:
-        let actions = replaceBeginState(curSc, scStartStatesOffsetted, scToIdx, state, rules[rule-1].actions)
-        newStmtList(actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty)))
+        if ifStmt.len > 0: 
+          if rule in ctx.ruleToAdditionalCaseBranches:
+            caseLabel = ctx.ruleToAdditionalCaseBranches[rule][0]
+          else:
+            let actions = replaceBeginState(curSc, ctx, state, rules[rule-1].actions)
+            # the actions need to go into its own, separate case branch 
+            caseLabel = stateCnt + 1 + ctx.ruleToAdditionalCaseBranches.len
+            ctx.ruleToAdditionalCaseBranches[rule] = (caseLabel, actions)
+          newStmtList(quote do:
+            `state` = `caseLabel`)
+        else:
+          let actions = replaceBeginState(curSc, ctx, state, rules[rule-1].actions)
+          # it is already its own case branch for the accept actions
+          newStmtList(actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty)))
       else:
-        newTree(nnkBreakStmt, newNimNode(nnkEmpty))
+        # no possible transition, go to last accepted state and pos 
+        newStmtList(quote do:
+            `i` = `lastAccPos`
+            `state` = `lastAccStateAction`)
     if ifStmt.len == 0:
-      caseStmt.add newTree(nnkOfBranch, newLit(src+labelOffset), actions)
+      caseStmt.add newTree(nnkOfBranch, newLit(src + ctx.labelOffset), actions)
     else:
       ifStmt.add newTree(nnkElse, actions)
-      caseStmt.add newTree(nnkOfBranch, newLit(src+labelOffset), ifStmt)
-  labelOffset += a.stateCount 
+      if rule >= 1:
+        let updates = quote do:
+          `lastAccPos` = `i`
+          `lastAccStateAction` = `caseLabel` 
+        let stmt = newStmtList(updates, ifStmt)
+        caseStmt.add newTree(nnkOfBranch, newLit(src + ctx.labelOffset), stmt)
+      else:
+        caseStmt.add newTree(nnkOfBranch, newLit(src + ctx.labelOffset), ifStmt)
+  ctx.labelOffset += a.stateCount 
   
-proc tryGetRules(scToIdx: var Table[string,int], scToRules: var seq[seq[Rule]], n : NimNode) = 
+proc tryGetRules(c: var CodegenCtx, n : NimNode) = 
     case n 
     of Call([Ident(strVal: @startCondition), StmtList([all @callList])]):
         for call in callList:
             case call
             of Call([@lit is (kind: in nnkStrKinds), @stmt is StmtList()]):
-                if startCondition notin scToIdx:
-                    scToRules.add @[]
-                    scToIdx[startCondition] = scToIdx.len 
-                let scIdx = scToIdx[startCondition]
-                scToRules[scIdx].add Rule(startCondition: startCondition, regex:lit.strVal, actions: stmt)
+                if startCondition notin c.scToIdx:
+                    c.scToRules.add @[]
+                    c.scToIdx[startCondition] = c.scToIdx.len 
+                let scIdx = c.scToIdx[startCondition]
+                c.scToRules[scIdx].add Rule(startCondition: startCondition, regex:lit.strVal, actions: stmt)
             of CommentStmt():
                 discard 
             else:
                 raise newException(Exception, "Unable to understand the start condition call with this AST repr " & astGenRepr call)
     of Call([@lit is (kind: in nnkStrKinds), @stmt is StmtList()]):
-        let scIdx = scToIdx[initialStartCondition]
-        scToRules[scIdx].add Rule(startCondition: initialStartCondition, regex:lit.strVal, actions:stmt)
+        let scIdx = c.scToIdx[initialStartCondition]
+        c.scToRules[scIdx].add Rule(startCondition: initialStartCondition, regex:lit.strVal, actions:stmt)
     of CommentStmt():
         discard
     else:
         raise newException(Exception, "I do not understand the syntax of " & astGenRepr n)
 
-template dslparse() {.dirty.} = 
-  # dsl parsing 
-  var scToRules : seq[seq[Rule]] 
-  var scToIdx = initTable[string,int]() 
+template parseDsl(ctx: var CodegenCtx) {.dirty.} = 
   # for sanity, initial start condition always gets the lower ordinal.
-  scToIdx[initialStartCondition] = 0
-  scToRules.add @[]
+  ctx.scToIdx[initialStartCondition] = 0
+  ctx.scToRules.add @[]
 
   case sections 
   of StmtList([all @calls]):
       for call in calls: 
-          tryGetRules(scToIdx, scToRules, call)
+          tryGetRules(ctx, call)
   else:
       raise newException(Exception, "I do not understand the syntax " & astGenRepr sections)
 
@@ -178,11 +207,9 @@ template dslparse() {.dirty.} =
     for sc, rules in scToRules:
       echo "sc=" & $sc & ",rules=" & repr rules
 
-template dfagen() {.dirty.} = 
-  # dfa generation 
-  var dfas : seq[DFA] 
+template genDfa(ctx: var CodegenCtx) {.dirty.} = 
   # we would have to generate a different version for cstring support. 
-  for scIdx, rules in scToRules:
+  for scIdx, rules in ctx.scToRules:
     when defined(leximSkipLexe):
       var bigRe: PRegExpr = nil
       var ruleIdx = 1
@@ -198,7 +225,7 @@ template dfagen() {.dirty.} =
       let alph = fullAlphabet(n)
       NFA_to_DFA(n, d, alph)
       optimizeDFA(d, o, alph)
-      dfas.add o
+      ctx.dfas.add o
     else:
       # use 'lexe.exe' helper program in order to speedup lexer generation
       var res: seq[string] = @[]
@@ -213,13 +240,13 @@ template dfagen() {.dirty.} =
       # just crash the compiler. so, just rely on the previous lines to get 
       # the hint that something went wrong. 
       let o = to[DFA](lexeOut)
-      dfas.add o
+      ctx.dfas.add o
 
-template codegen() {.dirty.} = 
+template genCode(ctx: var CodegenCtx) {.dirty.} = 
   # because states for individual DFA fall in the range(1..numStates)
   # but we have multiple DFA, so keep running count of states added so far 
   # incremented once for each dfa processed. 
-  var labelOffset = 0
+  ctx.labelOffset = 1 # 1 is the jammed state 
   # pos, oldPos, input, lexState intentionally exposed to user action code 
   let pos = ident("pos")
   let oldPos = ident("oldPos")
@@ -229,43 +256,56 @@ template codegen() {.dirty.} =
   let curSc = genSym(nskVar, "curSc")  
   let state = genSym(nskVar, "state")
 
-  var stateCnt = 0 
-  var scStartStatesOffsetted: seq[int]
-  for dfa in dfas:
-    scStartStatesOffsetted.add stateCnt + dfa.startState
+  var stateCnt = 1 # for jammed state
+  for dfa in ctx.dfas:
+    ctx.scStartOffsets.add stateCnt + dfa.startState
     stateCnt += dfa.stateCount
   when defined(leximVerbose):
-    echo "scStartStatesOffsetted:"
-    echo $scStartStatesOffsetted
+    echo "scStartOffsets:"
+    echo $ctx.scStartOffsets
 
-  let initScStartState = dfas[0].startState
+  let initScStartState = ctx.scStartOffsets[0]
   let caseStmt = newNimNode(nnkCaseStmt)
   caseStmt.add state
+  caseStmt.add newTree(nnkOfBranch, newLit(1), quote do:
+    raise newException(Exception, "state machine is jammed! there is no more possible match"))
+
   let isCstr = newLit(true) == isCString
-  for sc, dfa in dfas:
-    genMatcher(state, scStartStatesOffsetted, scToIdx, curSc, dfa, input, pos, scToRules[sc], isCstr, labelOffset, caseStmt)
+  let lastAccStateAction = genSym(nskVar, "lastAccStateAction")
+  let lastAccPos = genSym(nskVar, "lastAccPos")
+  for sc, dfa in ctx.dfas:
+    genMatcher(state, ctx, curSc, dfa, input, pos, ctx.scToRules[sc], isCstr, caseStmt, stateCnt, lastAccPos, lastAccStateAction)
+
+  # generate the additional case branches for the actions 
+  # of accept states that have outgoing transitions. 
+  for caseLabel, actions in ctx.ruleToAdditionalCaseBranches.values():
+    caseStmt.add newTree(nnkOfBranch, newLit(caseLabel), newStmtList(actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty))))
 
   let inputStrType = if isCstr: ident("cstring") else: ident("string")
   # far less brain damaging to write than the eqv in AST 
   # this needs to be a closure iterator because otherwise it would inline, try
   # to generate identical goto labels in the same compilation unit and break
   # compilation
+  let caseLabelUpper = stateCnt+ctx.ruleToAdditionalCaseBranches.len
   result = quote do:
     iterator `procName`*(`input`: `inputStrType`, `lexState`: var `lexerStateTName`) : `tokenTName` {.closure.} = 
-      var `state` {.goto.} : range[1..`stateCnt`] 
-      var `curSc` : range[1..`stateCnt`] = `initScStartState`
+      var `state` {.goto.} : range[1..`caseLabelUpper`] 
+      var `curSc` : range[1..`caseLabelUpper`] = `initScStartState`
       var `pos` = 0 
       while `pos` < `input`.len:
         let `oldPos` = `pos` 
+        var `lastAccPos` = `pos` 
+        var `lastAccStateAction` = 1 
         `state` = `curSc`     
         while true:
           `caseStmt`
   echo repr result
 
 macro match(isCString: bool, lexerStateTName, tokenTName, procName, sections: untyped): untyped =
-  dslparse()
-  dfagen()
-  codegen()
+  var ctx : CodegenCtx
+  parseDsl(ctx)
+  genDfa(ctx)
+  genCode(ctx)
   
 macro genStringMatcher*(name, body : untyped) : untyped = 
   echo astGenRepr body

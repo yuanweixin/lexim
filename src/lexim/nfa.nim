@@ -11,7 +11,7 @@ import
   regexprs
 
 const
-  maxLabel* = 512
+  MaxLabel* {.intdefine.}= 512
 
 type
   Alphabet* = object
@@ -23,7 +23,7 @@ const
 
 type
   TRuleIndex* = range[0..10_000]
-  TLabel* = range[0..maxLabel] # 0 is an invalid label number, indicating
+  TLabel* = range[0..MaxLabel] # 0 is an invalid label number, indicating
                                # there is no transition
   TLabelSet* = set[TLabel]    # max. size may be bigger in Nim
                               # transition tables: if label = 0,

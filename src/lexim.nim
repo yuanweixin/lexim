@@ -299,7 +299,8 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
         `state` = `curSc`     
         while true:
           `caseStmt`
-  echo repr result
+  when defined(leximVerbose):
+    echo repr result
 
 macro match(isCString: bool, lexerStateTName, tokenTName, procName, sections: untyped): untyped =
   var ctx : CodegenCtx

@@ -73,13 +73,19 @@ type
     regex : string 
     actions : NimNode 
 
+  CaseLabel = distinct int 
+  StartCond = distinct int 
+  RuleIdx = distinct int 
   CodegenCtx = object 
     scStartOffsets : seq[int]
     scToIdx: Table[string,int]
     scToRules : seq[seq[Rule]]
     dfas : seq[DFA]
     labelOffset: int 
-    ruleToAdditionalCaseBranches : OrderedTable[int, (int,NimNode)] # table because multiple accept states can exist for a single rule. The value is (caseLabel, NimNode), the caseLabel needs to be tracked because we need that for jumps from accept states with outgoing transitions. 
+    scRuleToAdditionalCaseBranches : OrderedTable[(StartCond, RuleIdx), (CaseLabel,NimNode)] # table because multiple accept states can exist for a single rule. The value is (caseLabel, NimNode), the caseLabel needs to be tracked because we need that for jumps from accept states with outgoing transitions. 
+
+proc `==` (a, b: StartCond): bool {.borrow.}
+proc `==` (a, b: RuleIdx): bool {.borrow.}
 
 proc replaceBeginState(curSc: NimNode, ctx: var CodegenCtx, state, n:NimNode) : NimNode = 
     case n 
@@ -111,7 +117,7 @@ proc replaceBeginState(curSc: NimNode, ctx: var CodegenCtx, state, n:NimNode) : 
     else:
         return n 
 
-proc genMatcher(state: NimNode, ctx: var CodegenCtx, curSc: NimNode, a: DFA; s, i: NimNode, rules: seq[Rule]; isCString: bool, caseStmt: NimNode, stateCnt: int, lastAccPos, lastAccStateAction: NimNode) {.compileTime.} =
+proc genMatcher(sc: StartCond, state: NimNode, ctx: var CodegenCtx, curSc: NimNode, a: DFA; s, i: NimNode, rules: seq[Rule]; isCString: bool, caseStmt: NimNode, stateCnt: int, lastAccPos, lastAccStateAction: NimNode) {.compileTime.} =
   ## curSc: the genSym'ed variable track cur start cond's start state. 
   ## state: the genSym'ed variable for cur state inside the while loop. 
   for src in countup(1, a.stateCount):
@@ -130,17 +136,18 @@ proc genMatcher(state: NimNode, ctx: var CodegenCtx, curSc: NimNode, a: DFA; s, 
                              nextState(i, state, dest+ctx.labelOffset))
         else:
           doAssert false, "not supported " & $ot.kind
-    var caseLabel : int 
+    var caseLabel : CaseLabel 
     let actions = 
       if rule >= 1:
+        let key = (sc,rule.RuleIdx)
         if ifStmt.len > 0: 
-          if rule in ctx.ruleToAdditionalCaseBranches:
-            caseLabel = ctx.ruleToAdditionalCaseBranches[rule][0]
+          if key in ctx.scRuleToAdditionalCaseBranches:
+            caseLabel = ctx.scRuleToAdditionalCaseBranches[key][0]
           else:
             let actions = replaceBeginState(curSc, ctx, state, rules[rule-1].actions)
             # the actions need to go into its own, separate case branch 
-            caseLabel = stateCnt + 1 + ctx.ruleToAdditionalCaseBranches.len
-            ctx.ruleToAdditionalCaseBranches[rule] = (caseLabel, actions)
+            caseLabel = (stateCnt + 1 + ctx.scRuleToAdditionalCaseBranches.len).CaseLabel
+            ctx.scRuleToAdditionalCaseBranches[key] = (caseLabel, actions)
           newStmtList(quote do:
             `state` = `caseLabel`)
         else:
@@ -202,45 +209,31 @@ template parseDsl(ctx: var CodegenCtx) {.dirty.} =
       raise newException(Exception, "I do not understand the syntax " & astGenRepr sections)
 
   when defined(leximVerbose):
-    for sc, idx in scToIdx:
+    for sc, idx in ctx.scToIdx:
       echo "sc=" & sc & ", idx=" & $idx
-    for sc, rules in scToRules:
+    for sc, rules in ctx.scToRules:
       echo "sc=" & $sc & ",rules=" & repr rules
 
 template genDfa(ctx: var CodegenCtx) {.dirty.} = 
-  # we would have to generate a different version for cstring support. 
   for scIdx, rules in ctx.scToRules:
-    when defined(leximSkipLexe):
-      var bigRe: PRegExpr = nil
-      var ruleIdx = 1
-      for rule in rules:
-        let rex = parseRegExpr(rule.regex, findMacro,
-                                {reNoCaptures, reNoBackrefs})
-        rex.rule = ruleIdx
-        if bigRe.isNil: bigRe = rex
-        else: bigRe = altExpr(bigRe, rex)
-      var n: NFA
-      var d, o: DFA
-      regExprToNFA(bigRe, n)
-      let alph = fullAlphabet(n)
-      NFA_to_DFA(n, d, alph)
-      optimizeDFA(d, o, alph)
-      ctx.dfas.add o
-    else:
-      # use 'lexe.exe' helper program in order to speedup lexer generation
-      var res: seq[string] = @[]
-      for rule in rules:
-        res.add rule.regex
-      let data = $$res
-      let lexeOut = staticExec("lexe", input=data, cache=data)
-      when defined(leximVerbose):
-        echo "lexe output (from regex construction):"
-        echo lexeOut
-      # for reasons unknown, can't catch exceptions from the call. it would
-      # just crash the compiler. so, just rely on the previous lines to get 
-      # the hint that something went wrong. 
-      let o = to[DFA](lexeOut)
-      ctx.dfas.add o
+    # use 'lexe.exe' helper program in order to speedup lexer generation
+    var res: seq[string] = @[]
+    for rule in rules:
+      res.add rule.regex
+    let data = $$res
+    let lexeOut = staticExec("lexe", input=data, cache=data)
+    when defined(leximVerbose):
+      echo "===lexe output (from regex construction)==="
+      echo lexeOut
+      echo "===end lexe output==="
+    # for reasons unknown, can't catch exceptions from the call. it would
+    # just crash the compiler. so, just rely on the previous lines to get 
+    # the hint that something went wrong. 
+    ctx.dfas.add to[DFA](lexeOut)
+  when defined(leximVerbose):
+    echo "===dfas==="
+    echo repr ctx.dfas
+    echo "===end dfas==="
 
 template genCode(ctx: var CodegenCtx) {.dirty.} = 
   # because states for individual DFA fall in the range(1..numStates)
@@ -261,8 +254,9 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
     ctx.scStartOffsets.add stateCnt + dfa.startState
     stateCnt += dfa.stateCount
   when defined(leximVerbose):
-    echo "scStartOffsets:"
+    echo "===scStartOffsets==="
     echo $ctx.scStartOffsets
+    echo "===end scStartOffsets==="
 
   let initScStartState = ctx.scStartOffsets[0]
   let caseStmt = newNimNode(nnkCaseStmt)
@@ -274,19 +268,19 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
   let lastAccStateAction = genSym(nskVar, "lastAccStateAction")
   let lastAccPos = genSym(nskVar, "lastAccPos")
   for sc, dfa in ctx.dfas:
-    genMatcher(state, ctx, curSc, dfa, input, pos, ctx.scToRules[sc], isCstr, caseStmt, stateCnt, lastAccPos, lastAccStateAction)
+    genMatcher(sc.StartCond, state, ctx, curSc, dfa, input, pos, ctx.scToRules[sc], isCstr, caseStmt, stateCnt, lastAccPos, lastAccStateAction)
 
   # generate the additional case branches for the actions 
   # of accept states that have outgoing transitions. 
-  for caseLabel, actions in ctx.ruleToAdditionalCaseBranches.values():
-    caseStmt.add newTree(nnkOfBranch, newLit(caseLabel), newStmtList(actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty))))
+  for caseLabel, actions in ctx.scRuleToAdditionalCaseBranches.values():
+    caseStmt.add newTree(nnkOfBranch, newLit(caseLabel.int), newStmtList(actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty))))
 
   let inputStrType = if isCstr: ident("cstring") else: ident("string")
   # far less brain damaging to write than the eqv in AST 
   # this needs to be a closure iterator because otherwise it would inline, try
   # to generate identical goto labels in the same compilation unit and break
   # compilation
-  let caseLabelUpper = stateCnt+ctx.ruleToAdditionalCaseBranches.len
+  let caseLabelUpper = stateCnt+ctx.scRuleToAdditionalCaseBranches.len
   result = quote do:
     iterator `procName`*(`input`: `inputStrType`, `lexState`: var `lexerStateTName`) : `tokenTName` {.closure.} = 
       var `state` {.goto.} : range[1..`caseLabelUpper`] 
@@ -309,7 +303,6 @@ macro match(isCString: bool, lexerStateTName, tokenTName, procName, sections: un
   genCode(ctx)
   
 macro genStringMatcher*(name, body : untyped) : untyped = 
-  echo astGenRepr body
   case name:
   of BracketExpr([@procName is Ident(), @lexerStateT is Ident(), @tokenT is Ident()]):
     result = quote do:
@@ -318,7 +311,6 @@ macro genStringMatcher*(name, body : untyped) : untyped =
     raise newException(Exception, "Expected procName[<LexerStateType>, <TokenType>] but got " & repr name)
 
 macro genCStringMatcher*(name, body : untyped) : untyped = 
-  echo astGenRepr name
   case name:
   of BracketExpr([@procName is Ident(), @lexerStateT is Ident(), @tokenT is Ident()]):
     result = quote do:

@@ -18,38 +18,38 @@ an END'''
 
 import lexim
 
-type State = object 
-  strBody : string 
-  commentDepth : int 
+type State = object
+  strBody: string
+  commentDepth: int
 
-type Token = object 
-  thing : int 
+type Token = object
+  thing: int
 
 genStringMatcher lex[State, Token]:
-  "begin string": 
+  "begin string":
     beginState(string)
-  r"\d+": 
+  r"\d+":
     echo "an integer ", input.substr(oldPos, pos-1), "##"
-  "else": 
+  "else":
     echo "an ELSE"
-  "elif": 
+  "elif":
     echo "an ELIF"
   "end": echo "an END"
-  r"[a-zA-Z_]\w+": 
+  r"[a-zA-Z_]\w+":
     echo "an identifier ", input.substr(oldPos, pos-1), "##"
-  r".": 
+  r".":
     echo "something else ", input.substr(oldPos, pos-1), "##"
   string:
-    "end string": 
+    "end string":
       echo "String(" & lexState.strBody & ")"
       lexState.strBody = ""
       beginState(initial)
-    r".": 
+    r".":
       lexState.strBody.add input.substr(oldPos, pos-1)
 
 proc main =
   var input = "begin string hello world end stringthe 0909 else input elif elseo end"
-  var state = State(strBody:"", commentDepth:0)
+  var state = State(strBody: "", commentDepth: 0)
   for thing in lex(input, state):
     discard
 

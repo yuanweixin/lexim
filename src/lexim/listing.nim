@@ -86,7 +86,7 @@ proc charSetStr*(cc: set[char]): string =
 
 proc charSetOrCharStr*(cc: set[char]): string =
   var count = 0
-  var c1 = '\0'                   # to avoid warnings
+  var c1 = '\0' # to avoid warnings
   for c in countup('\0', '\xFF'):
     if c in cc:
       c1 = c

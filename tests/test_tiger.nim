@@ -2,12 +2,12 @@ import lexim
 import strutils
 import unittest
 import std/sugar
-import patty 
+import patty
 
-variantp Token: 
-    Type 
-    Var 
-    Function 
+variantp Token:
+    Type
+    Var
+    Function
     Break
     Of
     End
@@ -50,19 +50,19 @@ variantp Token:
     Id(id: string)
     Eof
 
-type 
+type
     TigerlexState* = object
-        strBody : string
-        commentDepth : int 
+        strBody: string
+        commentDepth: int
 
-proc newLexState*() : TigerlexState = 
+proc newLexState*(): TigerlexState =
     result = TigerlexState(strBody: "", commentDepth: 0)
 
-genStringMatcher tigerTokenIter[TigerlexState,Token]:
+genStringMatcher tigerTokenIter[TigerlexState, Token]:
     r"\n":
-        discard 
+        discard
     r"\s":
-        discard 
+        discard
     r"type":
         yield Type()
     r"var":
@@ -126,9 +126,9 @@ genStringMatcher tigerTokenIter[TigerlexState,Token]:
     r"\.":
         yield Dot()
     r"\}":
-        yield Rbrace()  
+        yield Rbrace()
     r"\{":
-            yield Lbrace()
+        yield Lbrace()
     r"\]":
         yield Rbrack()
     r"\[":
@@ -168,20 +168,20 @@ genStringMatcher tigerTokenIter[TigerlexState,Token]:
             let i = parseInt(input.substr(oldPos+1, pos-1))
             lexState.strBody.add $chr(i)
         """\\(\t|\f|\n| )+\\""":
-            discard 
+            discard
         r".":
             lexState.strBody.add input.substr(oldPos, pos-1)
-    comment: 
+    comment:
         r"/\*":
-            inc lexState.commentDepth 
+            inc lexState.commentDepth
         r"\*/":
-            dec lexState.commentDepth 
+            dec lexState.commentDepth
             if lexState.commentDepth == 0:
                 beginState(initial)
         r".":
             discard
     r"/\*":
-        inc lexState.commentDepth 
+        inc lexState.commentDepth
         beginState(comment)
     r"[0-9]+":
         yield Int(parseInt(input.substr(oldPos, pos-1)))
@@ -190,10 +190,45 @@ genStringMatcher tigerTokenIter[TigerlexState,Token]:
     "\0":
         yield Eof()
     r".":
-        raise newException(Exception, "Unexpected character###" & input.substr(oldPos, pos-1) & "### at [" & $oldPos & "," & $(pos-1) & "]")
+        raise newException(Exception, "Unexpected character###" & input.substr(
+                oldPos, pos-1) & "### at [" & $oldPos & "," & $(pos-1) & "]")
 
 test "queens.tig":
-    let expected = @[Let(), Var(), Id("N"), Assign(), Int(8), Type(), Id("intArray"), Eq(), Array(), Of(), Id("int"), Var(), Id("row"), Assign(), Id("intArray"), Lbrack(), Id("N"), Rbrack(), Of(), Int(0), Var(), Id("col"), Assign(), Id("intArray"), Lbrack(), Id("N"), Rbrack(), Of(), Int(0), Var(), Id("diag1"), Assign(), Id("intArray"), Lbrack(), Id("N"), Plus(), Id("N"), Minus(), Int(1), Rbrack(), Of(), Int(0), Var(), Id("diag2"), Assign(), Id("intArray"), Lbrack(), Id("N"), Plus(), Id("N"), Minus(), Int(1), Rbrack(), Of(), Int(0), Function(), Id("printboard"), Lparen(), Rparen(), Eq(), Lparen(), For(), Id("i"), Assign(), Int(0), To(), Id("N"), Minus(), Int(1), Do(), Lparen(), For(), Id("j"), Assign(), Int(0), To(), Id("N"), Minus(), Int(1), Do(), Id("print"), Lparen(), If(), Id("col"), Lbrack(), Id("i"), Rbrack(), Eq(), Id("j"), Then(), String(" O"), Else(), String(" ."), Rparen(), Semicolon(), Id("print"), Lparen(), String("\n"), Rparen(), Rparen(), Semicolon(), Id("print"), Lparen(), String("\n"), Rparen(), Rparen(), Function(), Id("try"), Lparen(), Id("c"), Colon(), Id("int"), Rparen(), Eq(), Lparen(), If(), Id("c"), Eq(), Id("N"), Then(), Id("printboard"), Lparen(), Rparen(), Else(), For(), Id("r"), Assign(), Int(0), To(), Id("N"), Minus(), Int(1), Do(), If(), Id("row"), Lbrack(), Id("r"), Rbrack(), Eq(), Int(0), And(), Id("diag1"), Lbrack(), Id("r"), Plus(), Id("c"), Rbrack(), Eq(), Int(0), And(), Id("diag2"), Lbrack(), Id("r"), Plus(), Int(7), Minus(), Id("c"), Rbrack(), Eq(), Int(0), Then(), Lparen(), Id("row"), Lbrack(), Id("r"), Rbrack(), Assign(), Int(1), Semicolon(), Id("diag1"), Lbrack(), Id("r"), Plus(), Id("c"), Rbrack(), Assign(), Int(1), Semicolon(), Id("diag2"), Lbrack(), Id("r"), Plus(), Int(7), Minus(), Id("c"), Rbrack(), Assign(), Int(1), Semicolon(), Id("col"), Lbrack(), Id("c"), Rbrack(), Assign(), Id("r"), Semicolon(), Id("try"), Lparen(), Id("c"), Plus(), Int(1), Rparen(), Semicolon(), Id("row"), Lbrack(), Id("r"), Rbrack(), Assign(), Int(0), Semicolon(), Id("diag1"), Lbrack(), Id("r"), Plus(), Id("c"), Rbrack(), Assign(), Int(0), Semicolon(), Id("diag2"), Lbrack(), Id("r"), Plus(), Int(7), Minus(), Id("c"), Rbrack(), Assign(), Int(0), Rparen(), Rparen(), In(), Id("try"), Lparen(), Int(0), Rparen(), End()]
+    let expected = @[Let(), Var(), Id("N"), Assign(), Int(8), Type(), Id(
+            "intArray"), Eq(), Array(), Of(), Id("int"), Var(), Id("row"),
+            Assign(), Id("intArray"), Lbrack(), Id("N"), Rbrack(), Of(), Int(0),
+            Var(), Id("col"), Assign(), Id("intArray"), Lbrack(), Id("N"),
+            Rbrack(), Of(), Int(0), Var(), Id("diag1"), Assign(), Id(
+            "intArray"), Lbrack(), Id("N"), Plus(), Id("N"), Minus(), Int(1),
+            Rbrack(), Of(), Int(0), Var(), Id("diag2"), Assign(), Id(
+            "intArray"), Lbrack(), Id("N"), Plus(), Id("N"), Minus(), Int(1),
+            Rbrack(), Of(), Int(0), Function(), Id("printboard"), Lparen(),
+            Rparen(), Eq(), Lparen(), For(), Id("i"), Assign(), Int(0), To(),
+            Id("N"), Minus(), Int(1), Do(), Lparen(), For(), Id("j"), Assign(),
+            Int(0), To(), Id("N"), Minus(), Int(1), Do(), Id("print"), Lparen(),
+            If(), Id("col"), Lbrack(), Id("i"), Rbrack(), Eq(), Id("j"), Then(),
+            String(" O"), Else(), String(" ."), Rparen(), Semicolon(), Id(
+            "print"), Lparen(), String("\n"), Rparen(), Rparen(), Semicolon(),
+            Id("print"), Lparen(), String("\n"), Rparen(), Rparen(), Function(),
+            Id("try"), Lparen(), Id("c"), Colon(), Id("int"), Rparen(), Eq(),
+            Lparen(), If(), Id("c"), Eq(), Id("N"), Then(), Id("printboard"),
+            Lparen(), Rparen(), Else(), For(), Id("r"), Assign(), Int(0), To(),
+            Id("N"), Minus(), Int(1), Do(), If(), Id("row"), Lbrack(), Id("r"),
+            Rbrack(), Eq(), Int(0), And(), Id("diag1"), Lbrack(), Id("r"), Plus(),
+            Id("c"), Rbrack(), Eq(), Int(0), And(), Id("diag2"), Lbrack(), Id(
+            "r"), Plus(), Int(7), Minus(), Id("c"), Rbrack(), Eq(), Int(0),
+            Then(), Lparen(), Id("row"), Lbrack(), Id("r"), Rbrack(), Assign(),
+            Int(1), Semicolon(), Id("diag1"), Lbrack(), Id("r"), Plus(), Id(
+            "c"), Rbrack(), Assign(), Int(1), Semicolon(), Id("diag2"), Lbrack(),
+            Id("r"), Plus(), Int(7), Minus(), Id("c"), Rbrack(), Assign(), Int(
+            1), Semicolon(), Id("col"), Lbrack(), Id("c"), Rbrack(), Assign(),
+            Id("r"), Semicolon(), Id("try"), Lparen(), Id("c"), Plus(), Int(1),
+            Rparen(), Semicolon(), Id("row"), Lbrack(), Id("r"), Rbrack(),
+            Assign(), Int(0), Semicolon(), Id("diag1"), Lbrack(), Id("r"), Plus(),
+            Id("c"), Rbrack(), Assign(), Int(0), Semicolon(), Id("diag2"),
+            Lbrack(), Id("r"), Plus(), Int(7), Minus(), Id("c"), Rbrack(),
+            Assign(), Int(0), Rparen(), Rparen(), In(), Id("try"), Lparen(),
+            Int(0), Rparen(), End()]
 
     let input = readFile("tests/queens.tig")
     var lexState = newLexState()

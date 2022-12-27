@@ -33,7 +33,7 @@ type
 template opcode*(x: Instr): Opcode = Opcode(x.uint32 and 0xff'u32)
 template regBx*(x: Instr): int = (x.uint32 shr 16'u32).int
 
-proc codeListing(c: Bytecode, result: var string, start=0; last = -1) =
+proc codeListing(c: Bytecode, result: var string, start = 0; last = -1) =
   # first iteration: compute all necessary labels:
   var jumpTargets = initIntSet()
   let last = if last < 0: c.code.len-1 else: min(last, c.code.len-1)
@@ -64,7 +64,7 @@ proc codeListing(c: Bytecode, result: var string, start=0; last = -1) =
       result.addf("\t$#\n", ($opc).substr(3))
     inc i
 
-proc echoCode*(c: Bytecode; start=0; last = -1) {.deprecated.} =
+proc echoCode*(c: Bytecode; start = 0; last = -1) {.deprecated.} =
   var buf = ""
   codeListing(c, buf, start, last)
   echo buf
@@ -158,7 +158,7 @@ proc backrefMatch(input: string; sp: int; capture: (int, int)): bool =
 
 proc execBytecode*(m: Bytecode; input: string;
                    captures: var seq[(int, int)],
-                   start=0): tuple[a: Action, endPos: int] =
+                   start = 0): tuple[a: Action, endPos: int] =
   var pc = m.startAt
   var sp = start
   #var backtrack: seq[(int,int)]
@@ -244,21 +244,21 @@ proc re*(regex: string; flags: set[RegexFlag] = {reExtended}): Bytecode =
   genBytecode(o, result)
 
 proc matchLen*(input: string; r: Bytecode;
-               captures: var seq[(int, int)], start=0): int =
+               captures: var seq[(int, int)], start = 0): int =
   let (isMatch, len) = execBytecode(r, input, captures, start)
   result = if isMatch <= 0: -1 else: len
 
 proc match*(input: string; r: Bytecode;
-            captures: var seq[(int, int)]; start=0): bool =
+            captures: var seq[(int, int)]; start = 0): bool =
   let (isMatch, len) = execBytecode(r, input, captures, start)
   result = isMatch > 0
 
-proc matchLen*(input: string; r: Bytecode, start=0): int =
+proc matchLen*(input: string; r: Bytecode, start = 0): int =
   var captures: seq[(int, int)] = @[]
   let (isMatch, len) = execBytecode(r, input, captures, start)
   result = if isMatch <= 0: -1 else: len
 
-proc match*(input: string; r: Bytecode; start=0): bool =
+proc match*(input: string; r: Bytecode; start = 0): bool =
   var captures: seq[(int, int)] = @[]
   let (isMatch, len) = execBytecode(r, input, captures, start)
   result = isMatch > 0

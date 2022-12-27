@@ -11,7 +11,7 @@ import
   regexprs
 
 const
-  MaxLabel* {.intdefine.}= 512
+  MaxLabel* {.intdefine.} = 512
 
 type
   Alphabet* = object
@@ -25,7 +25,7 @@ type
   TRuleIndex* = range[0..10_000]
   TLabel* = range[0..MaxLabel] # 0 is an invalid label number, indicating
                                # there is no transition
-  TLabelSet* = set[TLabel]    # max. size may be bigger in Nim
+  TLabelSet* = set[TLabel] # max. size may be bigger in Nim
                               # transition tables: if label = 0,
                               # it is the start node
   DFA_Edge* = object
@@ -41,10 +41,10 @@ type
                                             # label 0 is the start node
   TLabelToRule* = array[TLabel, TRuleIndex]
   DFA* = object
-    startState*: int          # start state; for some reason it won't always be 1
-    stateCount*: int          # number of states; states are from 1 to stateCount
+    startState*: int # start state; for some reason it won't always be 1
+    stateCount*: int # number of states; states are from 1 to stateCount
     captures*, backrefs*: int
-    ruleCount*: int           # number of rules; rule 0 means no match
+    ruleCount*: int  # number of rules; rule 0 means no match
     trans*: DFA_Trans
     toRules*: TLabelToRule
 
@@ -260,10 +260,10 @@ proc NFA_to_DFA*(a: NFA; b: var DFA; fullAlphabet: seq[Alphabet]) =
         addTrans(b.trans[j], c, p)
     inc(j)
 
-  # This is not part of the conversion algorithm, but it is needed to 
-  # to figure out which rule the DFA accepts. Each DFA state can have 
-  # multiple NFA accept states, each corresponding to a rule. We tie 
-  # break by prioritizing the smaller rule number. 
+  # This is not part of the conversion algorithm, but it is needed to
+  # to figure out which rule the DFA accepts. Each DFA state can have
+  # multiple NFA accept states, each corresponding to a rule. We tie
+  # break by prioritizing the smaller rule number.
   for d in countup(low(TLabel), j - 1):
     var minRule = high(int)
     for i in countup(low(TLabel), high(TLabel)):
@@ -276,7 +276,7 @@ proc NFA_to_DFA*(a: NFA; b: var DFA; fullAlphabet: seq[Alphabet]) =
       b.toRules[d] = minRule
       if minRule > b.ruleCount: b.ruleCount = minRule
   b.stateCount = j - 1
-  b.startState = 1            # for some reason this is always 1
+  b.startState = 1 # for some reason this is always 1
   b.captures = a.captures
   b.backrefs = a.backrefs
 
@@ -301,7 +301,7 @@ proc choose(s: TLabelSet; maxState: int): TLabel =
   for i in countup(1, maxState):
     if i in s:
       return i
-  result = 0                  # invalid state
+  result = 0 # invalid state
 
 proc optimizeDFA*(a: DFA; b: var DFA; fullAlphabet: seq[Alphabet]) =
   # Optimizes the DFA a to produce a minimal DFA.
@@ -324,13 +324,13 @@ proc optimizeDFA*(a: DFA; b: var DFA; fullAlphabet: seq[Alphabet]) =
     for c in fullAlphabet:
       let I = getPreds(a, s, c)
       if I == {}:
-        continue              # speed things up
+        continue # speed things up
       for j in countdown(p.len - 1, 0):
         let R = p[j]
         if (R * I != {}) and not (R <= I):
           # partition R into x, y
           let x = R * I
-          let y = R - x           # replace R by x and y in P:
+          let y = R - x # replace R by x and y in P:
           p[j] = x
           p.add y
           let findRes = searchInStates(w, w.len - 1, R)
@@ -343,8 +343,8 @@ proc optimizeDFA*(a: DFA; b: var DFA; fullAlphabet: seq[Alphabet]) =
               w.add x
             else:
               w.add y
-  b.stateCount = p.len        # new states
-  b.ruleCount = a.ruleCount   # rule count stays the same
+  b.stateCount = p.len # new states
+  b.ruleCount = a.ruleCount # rule count stays the same
   for j in countup(0, p.len - 1):
     if p[j] != {}:
       let repr = choose(p[j], a.stateCount) # choose a representant of the set

@@ -12,40 +12,40 @@
 import strutils
 
 type
-  RegexKind* = enum         ## the regex AST's kind
-    reEps,                  ## epsilon node
-    reChar,                 ## character node
-    reStr,                  ## string node
-    reCClass,               ## character class node
-    reStar,                 ## star node
-    rePlus,                 ## plus node
-    reOpt,                  ## option node
-    reCat,                  ## concatenation node
-    reAlt,                  ## alternatives node (|)
-    reCapture,              ## (capture)
-    reCaptureEnd,           ## not used by regex, but by NFA
-    reBackref,              ## \\backref
-    reBegin,                ## \\A
-    reEnd,                  ## \\Z
-    reWordBoundary,         ## \\b
-    reWordBoundaryNot       ## \\B
+  RegexKind* = enum   ## the regex AST's kind
+    reEps,            ## epsilon node
+    reChar,           ## character node
+    reStr,            ## string node
+    reCClass,         ## character class node
+    reStar,           ## star node
+    rePlus,           ## plus node
+    reOpt,            ## option node
+    reCat,            ## concatenation node
+    reAlt,            ## alternatives node (|)
+    reCapture,        ## (capture)
+    reCaptureEnd,     ## not used by regex, but by NFA
+    reBackref,        ## \\backref
+    reBegin,          ## \\A
+    reEnd,            ## \\Z
+    reWordBoundary,   ## \\b
+    reWordBoundaryNot ## \\B
 
   PRegExpr* = ref TRegExpr
   TRegExpr* = object
     kind*: RegexKind
-    a*, b*: PRegExpr          # some nodes have two successors
+    a*, b*: PRegExpr # some nodes have two successors
     c*: char
     s*: string
     cc*: ref set[char]
-    rule*: int                # if >= 0 it is a final state;
-                              # then it is the rule that was matched
+    rule*: int       # if >= 0 it is a final state;
+                     # then it is the rule that was matched
 
   RegexError* = object of ValueError
-  RegexFlag* = enum  ## how regexes are parsed
-    reExtended,      ## extended syntax support
-    reNoBackrefs,    ## always process \\1 as a character literal,
-                     ## not as back reference
-    reNoCaptures     ## () is the same as (?:)
+  RegexFlag* = enum ## how regexes are parsed
+    reExtended,     ## extended syntax support
+    reNoBackrefs,   ## always process \\1 as a character literal,
+                    ## not as back reference
+    reNoCaptures    ## () is the same as (?:)
 
   MacroLookupProc* = proc (macroname: string): PRegExpr {.closure.} ## \
     ## lookup proc that expands {macros}.
@@ -129,7 +129,7 @@ proc mnExpr*(r: PRegExpr; m, n: int): PRegExpr =
     else:
       ri = r
       for i in countup(2, m): ri = catExpr(ri, r)
-    result = ri               # r{m,n} := r^m
+    result = ri # r{m,n} := r^m
     for i in countup(m + 1, n):
       if ri.kind == reEps: ri = r
       else: ri = catExpr(ri, r)
@@ -232,14 +232,14 @@ proc getChar(buf: string; c: var ReCtx; inClass: bool): PRegExpr =
 
 proc parseStr(buf: string; c: var ReCtx): PRegExpr =
   var s = ""
-  inc(c.pos)                    # skip "
+  inc(c.pos) # skip "
   while c.pos < buf.len and buf[c.pos] != '\"':
     if buf[c.pos] in {'\0', '\C', '\L'}:
       error "\" expected"
-    let al = getChar(buf, c,false)
+    let al = getChar(buf, c, false)
     if al.kind == reChar: s.add al.c
     else: error "invalid regular expression " & buf
-  inc(c.pos)                    # skip "
+  inc(c.pos) # skip "
   result = strExpr(s)
 
 proc parseCClass(buf: string; c: var ReCtx): PRegExpr =
@@ -247,7 +247,7 @@ proc parseCClass(buf: string; c: var ReCtx): PRegExpr =
   var
     caret: bool
     cc: set[char]
-  inc(c.pos)                    # skip [
+  inc(c.pos) # skip [
   if c.pos < buf.len and buf[c.pos] == '^':
     caret = true
     inc(c.pos)
@@ -300,7 +300,7 @@ proc parseIdent(buf: string; c: var ReCtx): string =
         result.add toUpperAscii(buf[c.pos])
         inc(c.pos)
       of '_':
-        inc(c.pos)              # ignore _
+        inc(c.pos) # ignore _
       else: break
   else:
     error "identifier expected"
@@ -323,7 +323,7 @@ proc factor(buf: string; c: var ReCtx): PRegExpr =
     inc(c.pos)
     result = cclassExpr({'\1'..'\xFF'}) # - {'\L'})
   of '(':
-    inc(c.pos)                  # skip (
+    inc(c.pos) # skip (
     var isCapture = reNoCaptures notin c.flags
     if c.pos+1 < buf.len and buf[c.pos] == '?' and buf[c.pos+1] == ':':
       inc c.pos, 2
@@ -338,7 +338,7 @@ proc factor(buf: string; c: var ReCtx): PRegExpr =
   of '\\':
     result = getChar(buf, c, false)
   of '{':
-    inc(c.pos)                  # skip {
+    inc(c.pos) # skip {
     while c.pos < buf.len and buf[c.pos] in {' ', '\t'}: inc(c.pos)
     result = parseMacroCall(buf, c)
     if getNext(buf, c) == '}': inc(c.pos)
@@ -366,11 +366,11 @@ proc factor(buf: string; c: var ReCtx): PRegExpr =
       inc(c.pos)
       result = optExpr(result)
     of '{':
-      inc(c.pos)                # skip {
+      inc(c.pos) # skip {
       if getNext(buf, c) notin {'0'..'9'}:
         # a macro, but do not parse it here, but later to
         # keep the operator predecence:
-        while true:           # back to {
+        while true: # back to {
                               # a single decrement might not do
                               # because of skipped whitespace
           dec(c.pos)

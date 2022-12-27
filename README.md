@@ -1,9 +1,9 @@
 # lexim
-Lexer generation and regex implementation for Nim. Based on the [implementation by Andreas Rumpf](https://github.com/Araq/lexim). 
+Lexer generator for Nim. Based on the [implementation by Andreas Rumpf](https://github.com/Araq/lexim). 
 
 
-I extended the original code with these features
-* lexer states: what flex calls exclusive start conditions. There is always an "initial" state. Non-initial states are always exclusive. For my use cases of tokenizing strings and comments, this is enough. It would be pretty trivial to add support for "inclusive" rules, amounting to adding each inclusive rule to each exclusive state, before compiling the state's dfa. 
+I extended the original code with: 
+* lexer states: what flex calls "exclusive start conditions". There is always an "initial" state. Non-initial states are always exclusive. For my use cases of tokenizing strings and comments, this is enough. It would be pretty trivial to add support for "inclusive" rules, amounting to adding each inclusive rule to each exclusive state, before compiling the state's dfa. 
 * dsl syntax for specifying lexer states. 
 * longest-matching rule: the original version would discard inputs if you give it a pattern "a|aab|b" and input "aab", where it discards "aa" and matches "b". This doesn't make sense for a lexer in a programming language where you want it to succeed only if it was able to match the entire input. I extended the code so that it actually remembers the longest so-far matched position and backtracks to that when it runs out of possible matches. 
 * jam state: the original version would fail to terminate by never incrementing the current position and just dropping through the case statement in a while(true) loop. I changed it so that it would go to a jam state, which is hard coded to throw an exception. 
@@ -12,14 +12,19 @@ The implementation trades off code size for speed, by directly encoding a dfa an
 
 # details 
 
-Lexim implements fsa based scanner, using the classic Regex -> NFA -> DFA -> minimization. Regex parsing uses recursive descent. The NFA -> DFA with subset construction, DFA minimization using Hopcroft's algorithm. The code generated is a computed goto that is embedded in the caller code, which is more efficient than simulating the DFA separately via table reads. 
+Lexim implements fsa based scanner, using the classic Regex -> NFA -> DFA -> minimization. Regex parsing uses recursive descent. The NFA -> DFA with subset construction, DFA minimization using Hopcroft's algorithm. 
+
+The library uses a good amount of metaprogramming to go from the dsl to the dfa tables directly embedded in code. The code generated is an iterator, that internally encodes the DFA transition tables as goto in a while loop, which is more efficient than simulating the DFA separately via table reads. Start conditions are translated into individual DFA's, and the DFA's are combined into 1 loop, with properly offsetted labels. Longest match is implemented by adding bookkeeping on the longest matching position and longest matched state's action label, which is jumped to when we fail to find a longer match. The jam state is the default jump target if there is no match found. 
 
 No buffering scheme is given for the scanner. Since the toy compiler I write with this runs on modern desktops, memory is assumed to be abundant and it is just added complexity to throw in buffering. This eliminates incidental complexities such as needing to deal with with multi-line tokens (if using a line-oriented buffer), or dealing with the possibility that a single token can exceed your buffer size. 
 
-Lexim optionally uses a `lexe` helper exe. It's not mandatory but will make the compilation process a LOT faster.  It speeds up the compilation process by offloading the expensive DFA construction to a separate process instead of doing it in the VM (for more complicated regex it generates the `interpretation requires too many iterations` error; fwiw it could be mitigated with compiler option `maxLoopIterationsVM:N` but that's ugly). The package is set up so that when you do `nimble install` it will compile `lexe` and put that into your nimble cache. 
+Lexim uses a `lexe` helper exe. It is done to significantly speed up the compilation process by offloading the expensive DFA construction to a separate process instead of doing it in the compiler VM (not only is it slow, but for more complicated regex it generates the `interpretation requires too many iterations` error, which could be mitigated with compiler option `maxLoopIterationsVM:N` but it will still be significantly slower). The package is set up so that when you do `nimble install` it will compile `lexe` and put that into your nimble cache. 
+
+You can run `nimble install` if you are hacking this lib and need to test out changes to `lexe`. 
+
 
 # usage 
-Please see [this](tests/ex1.nim) for a simple example. And [this](tests/test_tiger.nim) for example of using lexer states. 
+Please see [this](tests/ex1.nim) for a simple example. And [this](tests/test_tiger.nim) for example of using the library to tokenize a toy programming language. 
 
 Basic usage:
 

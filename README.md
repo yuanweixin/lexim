@@ -25,7 +25,7 @@ Lexim uses a `lexe` helper exe. It is done to significantly speed up the compila
 
 You can run `nimble install` if you are hacking this lib and need to test out changes to `lexe`. 
 
-You can run `nimble test` to run the tests. 
+You can run `nimble runtests` to run the tests. 
 
 
 # usage 

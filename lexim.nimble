@@ -22,8 +22,8 @@ task make, "builds Lexim and an example":
   buildHelper "lexe"
   exec "nim c ex1"
 
-task tests, "test regular expressions":
+task runtests, "test regular expressions":
   exec """testament p 'tests/*.nim'"""
 
-taskRequires "tests", "patty"
+taskRequires "runtests", "patty"
 

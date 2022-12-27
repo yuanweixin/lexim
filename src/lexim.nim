@@ -196,7 +196,7 @@ proc tryGetRules(c: var CodegenCtx, n : NimNode) =
     else:
         raise newException(Exception, "I do not understand the syntax of " & astGenRepr n)
 
-template parseDsl(ctx: var CodegenCtx) {.dirty.} = 
+template parseDsl(ctx: var CodegenCtx) = 
   # for sanity, initial start condition always gets the lower ordinal.
   ctx.scToIdx[initialStartCondition] = 0
   ctx.scToRules.add @[]
@@ -214,7 +214,7 @@ template parseDsl(ctx: var CodegenCtx) {.dirty.} =
     for sc, rules in ctx.scToRules:
       echo "sc=" & $sc & ",rules=" & repr rules
 
-template genDfa(ctx: var CodegenCtx) {.dirty.} = 
+template genDfa(ctx: var CodegenCtx) = 
   for scIdx, rules in ctx.scToRules:
     # use 'lexe.exe' helper program in order to speedup lexer generation
     var res: seq[string] = @[]

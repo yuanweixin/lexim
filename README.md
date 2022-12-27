@@ -20,7 +20,12 @@ No buffering scheme is given for the scanner. Since the toy compiler I write wit
 
 Lexim uses a `lexe` helper exe. It is done to significantly speed up the compilation process by offloading the expensive DFA construction to a separate process instead of doing it in the compiler VM (not only is it slow, but for more complicated regex it generates the `interpretation requires too many iterations` error, which could be mitigated with compiler option `maxLoopIterationsVM:N` but it will still be significantly slower). The package is set up so that when you do `nimble install` it will compile `lexe` and put that into your nimble cache. 
 
+
+# development
+
 You can run `nimble install` if you are hacking this lib and need to test out changes to `lexe`. 
+
+You can run `nimble test` to run the tests. 
 
 
 # usage 

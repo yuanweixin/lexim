@@ -20,7 +20,7 @@ let thaRe = re.re("[Pp]leasuring", {reDotAll, reStudy})
 
 import lexim
 
-lexim.genStringMatcher lex[int, int]:
+lexim.genStringMatcher makeLex[int, int]:
   r"[Pp]leasuring":
     yield pos
   r".":
@@ -60,7 +60,8 @@ proc main =
     bench "lexer":
       var res = -1
       for i in 1..100:
-        for nextp in lex(inp, res):
+        let lexIter = makeLex(inp)
+        for nextp in lexIter(res):
           break
 
     bench "scanp":
@@ -75,7 +76,8 @@ proc main =
     echo re.find(inp, thaRe)+len"pleasuring"
     echo find(inp, "pleasuring")+len"pleasuring"
     var pos = -1
-    for nextp in lex(inp, pos):
+    let lexIter = makeLex(inp)
+    for nextp in lexIter(pos):
       echo $nextp
       break
     echo scan(inp) # +len"pleasuring"

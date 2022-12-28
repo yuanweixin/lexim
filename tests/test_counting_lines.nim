@@ -20,7 +20,7 @@ type
     lineNumber: int
 
 # example of how you can implement line and col tracking.
-genStringMatcher testLex[State, Token]:
+genStringMatcher makeLex[State, Token]:
   r"\n":
     inc lexState.lineNumber
     lexState.lineStartPos = pos
@@ -45,8 +45,9 @@ test "test lexer counting newline":
     ]
 
   var state = State(lineStartPos: 0, lineNumber: 1)
+  let lexIter = makeLex(str)
   var ret = collect(newSeq):
-    for token in testLex(str, state): token
+    for token in lexIter(state): token
 
 
   check expected == ret

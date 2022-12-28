@@ -2,7 +2,7 @@ import lexim
 import unittest
 import std/sugar
 
-genStringMatcher lex[int, string]:
+genStringMatcher makeLex[int, string]:
     "a": yield "a"
     "aaa": yield "aaa"
     "b": yield "b"
@@ -16,6 +16,7 @@ test "consumes all input during recognition":
     let input = "aab"
     var lexState: int
     var res: seq[string]
-    for s in lex(input, lexState):
+    let lexIter = makeLex(input)
+    for s in lexIter(lexState):
         res.add s
     areEq ["a", "a", "b"], res

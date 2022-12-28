@@ -297,19 +297,22 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
   # to generate identical goto labels in the same compilation unit and break
   # compilation
   let caseLabelUpper = stateCnt+ctx.scRuleToAdditionalCaseBranches.len
+  # the syntax for iterator type is dumb, it is unhappy if you don't give the parameter a name
+  # definitely one of the rough edges of the language.
   result = quote do:
-    iterator `procName`*(`input`: `inputStrType`;
-        `lexState`: var `lexerStateTName`): `tokenTName` {.closure.} =
-      var `state` {.goto.}: range[1..`caseLabelUpper`]
-      var `curSc`: range[1..`caseLabelUpper`] = `initScStartState`
-      var `pos` = 0
-      while `pos` < `input`.len:
-        let `oldPos` = `pos`
-        var `lastAccPos` = `pos`
-        var `lastAccStateAction` = 1
-        `state` = `curSc`
-        while true:
-          `caseStmt`
+    proc `procName`*(`input`: `inputStrType`): iterator(
+        _: var `lexerStateTName`): `tokenTName` =
+      result = iterator(`lexState`: var `lexerStateTName`): `tokenTName` {.closure.} =
+        var `state` {.goto.}: range[1..`caseLabelUpper`]
+        var `curSc`: range[1..`caseLabelUpper`] = `initScStartState`
+        var `pos` = 0
+        while `pos` < `input`.len:
+          let `oldPos` = `pos`
+          var `lastAccPos` = `pos`
+          var `lastAccStateAction` = 1
+          `state` = `curSc`
+          while true:
+            `caseStmt`
   when defined(leximVerbose):
     echo repr result
 

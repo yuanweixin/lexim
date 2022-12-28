@@ -58,7 +58,7 @@ type
 proc newLexState*(): TigerlexState =
     result = TigerlexState(strBody: "", commentDepth: 0)
 
-genStringMatcher tigerTokenIter[TigerlexState, Token]:
+genStringMatcher makeLex[TigerlexState, Token]:
     r"\n":
         discard
     r"\s":
@@ -232,6 +232,7 @@ test "queens.tig":
 
     let input = readFile("tests/queens.tig")
     var lexState = newLexState()
+    let lexIter = makeLex(input)
     let actual = collect(newSeq):
-        for token in tigerTokenIter(input, lexState): token
+        for token in lexIter(lexState): token
     doAssert expected == actual

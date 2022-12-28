@@ -25,7 +25,7 @@ type State = object
 type Token = object
   thing: int
 
-genStringMatcher lex[State, Token]:
+genStringMatcher makeLexIter[State, Token]:
   "begin string":
     beginState(string)
   r"\d+":
@@ -50,7 +50,8 @@ genStringMatcher lex[State, Token]:
 proc main =
   var input = "begin string hello world end stringthe 0909 else input elif elseo end"
   var state = State(strBody: "", commentDepth: 0)
-  for thing in lex(input, state):
+  let tokenIter = makeLexIter(input)
+  for thing in tokenIter(state):
     discard
 
 main()

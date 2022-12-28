@@ -2,11 +2,30 @@
 Lexer generator for Nim. Based on the [implementation by Andreas Rumpf](https://github.com/Araq/lexim). 
 
 
-I extended the original code with: 
-* lexer states: what flex calls "exclusive start conditions". There is always an "initial" state. Non-initial states are always exclusive. For my use cases of tokenizing strings and comments, this is enough. It would be pretty trivial to add support for "inclusive" rules, amounting to adding each inclusive rule to each exclusive state, before compiling the state's dfa. 
-* dsl syntax for specifying lexer states. 
-* longest-matching rule: the original version would discard inputs if you give it a pattern "a|aab|b" and input "aab", where it discards "aa" and matches "b". This doesn't make sense for a lexer in a programming language where you want it to succeed only if it was able to match the entire input. I extended the code so that it actually remembers the longest so-far matched position and backtracks to that when it runs out of possible matches. 
-* jam state: the original version would fail to terminate by never incrementing the current position and just dropping through the case statement in a while(true) loop. I changed it so that it would go to a jam state, which is hard coded to throw an exception. 
+I extended Araq's version with: 
+* lexer states
+
+  what flex calls "exclusive start conditions". There is always an "initial" state. Non-initial states are always exclusive. For my use cases of tokenizing strings and comments, this is enough. It would be pretty trivial to add support for "inclusive" rules, amounting to adding each inclusive rule to each exclusive state, before compiling the state's dfa. 
+
+* dsl syntax 
+
+  for specifying lexer states. 
+
+* longest-matching rule: 
+
+  the original version would discard inputs if you give it a pattern "a|aab|b" and input "aab", where it discards "aa" and matches "b". This doesn't make sense for a lexer in a programming language where you want it to succeed only if it was able to match the entire input. I extended the code so that it actually remembers the longest so-far matched position and backtracks to that when it runs out of possible matches. 
+
+* jam state: 
+
+  the original version would fail to terminate by never incrementing the current position and just dropping through the case statement in a while(true) loop. I changed it so that it would go to a jam state, which is hard coded to throw an exception. 
+
+* iterator interface 
+
+  in a parser context, the lexer provides a stream of tokens. thus, the generated code is a proc that returns an iterator. 
+
+* global state support
+
+  the generated iterator takes in a user defined state object, that is available to the user action code to be mutated. this can be used to implement, for example, nested comments and collecting together a string body. 
 
 The implementation trades off code size for speed, by directly encoding a dfa and its actions as a series of goto's in while(true) case statement. 
 
@@ -23,63 +42,78 @@ Lexim uses a `lexe` helper exe. It is done to significantly speed up the compila
 
 # development
 
-You can run `nimble install` if you are hacking this lib and need to test out changes to `lexe`. 
+run `nimble install` if you are hacking this lib and need to test out changes to `lexe`. 
 
-You can run `nimble runtests` to run the tests. 
+run `nimble runtests` to run the tests. 
 
 
 # usage 
-Please see [this](tests/ex1.nim) for a simple example. And [this](tests/test_tiger.nim) for example of using the library to tokenize a toy programming language. 
 
-Basic usage:
+Basic usage (from [tests/ex1.nim](tests/ex1.nim)):
 
 ```nim
 
+"""
+
 import lexim
 
-type State = object 
-  strBody : string 
-  commentDepth : int 
+type State = object
+  strBody: string
+  commentDepth: int
 
-type Token = object 
-  thing : int 
+type Token = object
+  thing: int
 
-genStringMatcher lex[State, Token]:
-  "begin string": 
+genStringMatcher makeLexIter[State, Token]:
+  "begin string":
     beginState(string)
-  r"\d+": 
+  r"\d+":
     echo "an integer ", input.substr(oldPos, pos-1), "##"
-  "else": 
+  "else":
     echo "an ELSE"
-  "elif": 
+  "elif":
     echo "an ELIF"
   "end": echo "an END"
-  r"[a-zA-Z_]\w+": 
+  r"[a-zA-Z_]\w+":
     echo "an identifier ", input.substr(oldPos, pos-1), "##"
-  r".": 
+  r".":
     echo "something else ", input.substr(oldPos, pos-1), "##"
   string:
-    "end string": 
+    "end string":
       echo "String(" & lexState.strBody & ")"
       lexState.strBody = ""
       beginState(initial)
-    r".": 
+    r".":
       lexState.strBody.add input.substr(oldPos, pos-1)
 
 proc main =
-  var input = "begin string hello world end string the 0909 else input elif elseo end"
-  var state = State(strBody:"", commentDepth:0)
-  for thing in lex(input, state):
+  var input = "begin string hello world end stringthe 0909 else input elif elseo end"
+  var state = State(strBody: "", commentDepth: 0)
+  let tokenIter = makeLexIter(input)
+  for thing in tokenIter(state):
     discard
 
 main()
 ```
 
-`genStringMatcher lex[State, Token]:` generates a public iterator named `lex` that takes a `var` (mutable) State object (which is accessible in the action code), and the iterator yields Token's. 
+`genStringMatcher makeLexIter[State, Token]:` generates a public iterator, that takes a `var` (mutable) State object (which is accessible in the action code), yielding Token. 
 
-Note: the lexer state "initial" is the default and always available. In above example, because no lexer state was specified, all the rules fall into the initial state. 
+`input` is a hard coded variable name for the input string being tokenized. 
+
+`input.substr(oldPos, pos-1)` extracts the token string. `oldPos`, `pos` are hard coded variable names standing for start position of token and position after token, respectively. 
+
+`beginState(string)` transitions to the `string` lexer state/start condition. 
+
+`lexState` is the hard coded variable name bound to the passed in State object. 
+
+the lexer state "initial" is the default and always available. In above example, because no lexer state was specified, all the rules fall into the initial state. 
+
+See (tests/test_tiger.nim) for example of using the library to tokenize the tiger programming language. 
+
+See (tests/test_counting_lines.nim) for example of implement line and column tracking. 
 
 # Names accessible by user action code: 
+* `input` is the input string. 
 * `pos` is accessible in action code, it points to the index after the last matched token 
 * `oldPos` is the first position of match 
 * `beginState` can be used to transition state. It can take a string or identifier. 

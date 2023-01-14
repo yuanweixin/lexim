@@ -276,6 +276,9 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
   let caseStmt = newNimNode(nnkCaseStmt)
   caseStmt.add state
   caseStmt.add newTree(nnkOfBranch, newLit(1), quote do:
+    # this is the default value of lastAccStateAction when there is no last accepted position.
+    # TODO consider returning a value indicating no match instead of throwing exception.
+    # TODO if keep the exception, throw a derived type not the generic Exception type.
     raise newException(Exception, "state machine is jammed! there is no more possible match"))
 
   let isCstr = newLit(true) == isCString

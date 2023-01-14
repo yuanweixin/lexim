@@ -112,6 +112,10 @@ See (tests/test_tiger.nim) for example of using the library to tokenize the tige
 
 See (tests/test_counting_lines.nim) for example of implement line and column tracking. 
 
+# Regex 
+
+Note `[\n]` does not work because internally \n is treated as (\C\L|\L\C) and the \C\L part is a string, so can't really put that into a character class. You need to workaround it by rewriting your pattern. 
+
 # Names accessible by user action code: 
 * `input` is the input string. 
 * `pos` is accessible in action code, it points to the index after the last matched token 

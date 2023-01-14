@@ -230,6 +230,20 @@ template parseDsl(ctx: var CodegenCtx) =
 
 template genDfa(ctx: var CodegenCtx) =
   for scIdx, rules in ctx.scToRules:
+    block:
+      # do the parsing here (duplicated in lexe) so we at least get
+      # decent error message. doesn't work if I try to marshal a PRegExpr
+      # to lexe. marshal feels very buggy and honestly I rather not
+      # waste more brain cells and life dealing with it never working
+      # the way you expect.
+      var bigRe: PRegExpr = nil
+      for i, rule in rules:
+        let rex = parseRegExpr(rule.regex, findMacro,
+                              {reNoCaptures, reNoBackrefs})
+        rex.rule = i+1
+        if bigRe.isNil: bigRe = rex
+        else: bigRe = altExpr(bigRe, rex)
+
     # use 'lexe.exe' helper program in order to speedup lexer generation
     var res: seq[string] = @[]
     for rule in rules:

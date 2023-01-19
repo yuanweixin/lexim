@@ -18,6 +18,8 @@ import os
 export nfa
 export regexprs
 
+type JammedException* = object of IOError
+type BadDslInputException* = object of ValueError
 proc findMacro(name: string): PRegExpr {.used.} = nil
 
 proc newRange(a, b: NimNode): NimNode {.compileTime.} =
@@ -109,13 +111,15 @@ proc replaceBeginState(curSc: NimNode; ctx: var CodegenCtx; state,
     return newTree(nnkIfStmt, newBranches)
   of Call([Ident(strVal: "beginState"), @sc is (kind: in nnkStrKinds)]):
     if sc.strVal notin ctx.scToIdx:
-      raise newException(Exception, "Unknown state: " & sc.strVal)
+      raise newException(BadDslInputException,
+          "Unknown state label used in beginState. state=" & sc.strVal)
     let startState = ctx.scStartOffsets[ctx.scToIdx[sc.strVal]]
     result = quote do:
       `curSc` = `startState`
   of Call([Ident(strVal: "beginState"), Ident(strVal: @statename)]):
     if statename notin ctx.scToIdx:
-      raise newException(Exception, "Unknown state: " & statename)
+      raise newException(BadDslInputException,
+          "Unknown state label used in beginState. state=" & statename)
     let startState = ctx.scStartOffsets[ctx.scToIdx[statename]]
     result = quote do:
       `curSc` = `startState`
@@ -198,7 +202,8 @@ proc tryGetRules(c: var CodegenCtx; n: NimNode) =
       of CommentStmt():
         discard
       else:
-        raise newException(Exception, "Unable to understand the start condition call with this AST repr " &
+        raise newException(BadDslInputException,
+            "Unable to understand the start condition call with this AST repr " &
             astGenRepr call)
   of Call([@lit is (kind: in nnkStrKinds), @stmt is StmtList()]):
     let scIdx = c.scToIdx[initialStartCondition]
@@ -207,7 +212,8 @@ proc tryGetRules(c: var CodegenCtx; n: NimNode) =
   of CommentStmt():
     discard
   else:
-    raise newException(Exception, "I do not understand the syntax of " & astGenRepr n)
+    raise newException(BadDslInputException,
+        "I do not understand the syntax of " & astGenRepr n)
 
 template parseDsl(ctx: var CodegenCtx) =
   # for sanity, initial start condition always gets the lower ordinal.
@@ -219,7 +225,7 @@ template parseDsl(ctx: var CodegenCtx) =
     for call in calls:
       tryGetRules(ctx, call)
   else:
-    raise newException(Exception, "I do not understand the syntax " &
+    raise newException(BadDslInputException, "I do not understand the syntax " &
         astGenRepr sections)
 
   when defined(leximVerbose):
@@ -291,9 +297,7 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
   caseStmt.add state
   caseStmt.add newTree(nnkOfBranch, newLit(1), quote do:
     # this is the default value of lastAccStateAction when there is no last accepted position.
-    # TODO consider returning a value indicating no match instead of throwing exception.
-    # TODO if keep the exception, throw a derived type not the generic Exception type.
-    raise newException(Exception, "state machine is jammed! there is no more possible match"))
+    raise newException(JammedException, "state machine is jammed! there is no more possible match"))
 
   let isCstr = newLit(true) == isCString
   let lastAccStateAction = genSym(nskVar, "lastAccStateAction")
@@ -347,7 +351,8 @@ macro genStringMatcher*(name, body: untyped): untyped =
     result = quote do:
       match(false, `lexerStateT`, `tokenT`, `procName`, `body`)
   else:
-    raise newException(Exception, "Expected procName[<LexerStateType>, <TokenType>] but got " & repr name)
+    raise newException(BadDslInputException,
+        "Expected procName[<LexerStateType>, <TokenType>] but got " & repr name)
 
 macro genCStringMatcher*(name, body: untyped): untyped =
   case name:
@@ -356,4 +361,5 @@ macro genCStringMatcher*(name, body: untyped): untyped =
     result = quote do:
       match(true, `lexerStateT`, `tokenT`, `procName`, `body`)
   else:
-    raise newException(Exception, "Expected procName[<LexerStateType>, <TokenType>] but got " & repr name)
+    raise newException(BadDslInputException,
+        "Expected procName[<LexerStateType>, <TokenType>] but got " & repr name)

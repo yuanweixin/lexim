@@ -244,9 +244,9 @@ template parseDsl(ctx: var CodegenCtx) =
 
   when defined(leximVerbose):
     for sc, idx in ctx.scToIdx:
-      echo "sc=" & sc & ", idx=" & $idx
+      echo "sc=", sc, ", idx=", idx
     for sc, rules in ctx.scToRules:
-      echo "sc=" & $sc & ",rules=" & repr rules
+      echo "sc=", sc, ",rules=", repr rules
 
 template genDfa(ctx: var CodegenCtx) =
   for scIdx, rules in ctx.scToRules:

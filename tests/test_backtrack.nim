@@ -11,7 +11,7 @@ genStringMatcher makeLex[LexState, string]:
 
 template areEq(a, b) =
     if a != b:
-        echo "expected " & $a & " but got " & $b
+        echo "expected ", a, " but got ", b
         doAssert false
 
 

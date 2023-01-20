@@ -76,8 +76,8 @@ proc main =
         discard pegs(inp)
 
     echo matchLen(inp, bc)
-    echo re.find(inp, thaRe)+len"pleasuring"
-    echo find(inp, "pleasuring")+len"pleasuring"
+    echo re.find(inp, thaRe), len "pleasuring"
+    echo find(inp, "pleasuring"), len "pleasuring"
     var state = LexState(pos: 0)
     let lexIter = makeLex(inp)
     for nextp in lexIter(state):

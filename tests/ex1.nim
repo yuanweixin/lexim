@@ -42,7 +42,7 @@ genStringMatcher makeLexIter[State, Token]:
     echo "something else ", input.substr(oldPos, pos-1), "##"
   string:
     "end string":
-      echo "String(" & lexState.strBody & ")"
+      echo "String(", lexState.strBody, ")"
       lexState.strBody = ""
       beginState(initial)
     r".":

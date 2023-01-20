@@ -167,7 +167,11 @@ proc genMatcher(caseStmt: NimNode; ctx: var CodegenCtx; sc: StartCond;
                 rule-1].actions)
             # the actions need to go into its own, separate case branch
             caseLabel = (stateCnt + 1 + ctx.scRuleToAdditionalCaseBranches.len).CaseLabel
-            ctx.scRuleToAdditionalCaseBranches[key] = (caseLabel, actions)
+            # don't forget to set the lexState.pos in the action block.
+            let setLexState = quote do:
+              `lexState`.pos = `pos`
+            ctx.scRuleToAdditionalCaseBranches[key] = (caseLabel, newStmtList(
+                setLexState, actions))
           newStmtList(quote do:
             `state` = `caseLabel`)
         else:

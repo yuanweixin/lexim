@@ -18,8 +18,10 @@ import os
 export nfa
 export regexprs
 
-type JammedException* = object of IOError
-type BadDslInputException* = object of ValueError
+type
+  JammedException* = object of IOError
+  BadDslInputException* = object of ValueError
+
 proc findMacro(name: string): PRegExpr {.used.} = nil
 
 proc newRange(a, b: NimNode): NimNode {.compileTime.} =
@@ -81,19 +83,24 @@ type
   StartCond = distinct int
   RuleIdx = distinct int
   CodegenCtx = object
-    scStartOffsets: seq[int]
-    scToIdx: Table[string, int]
-    scToRules: seq[seq[Rule]]
-    dfas: seq[DFA]
-    labelOffset: int
+    scStartOffsets: seq[int] # for each start condition (dfa), what is the state number of its starting state.
+    scToIdx: Table[string, int] # start condition label to its assigned index.
+    scToRules: seq[seq[Rule]] # think of it as a start condition idx to the list of regexes it implements
+    dfas: seq[DFA]              # each dfa is for a start condition
+    labelOffset: int # used during codegen to track the offset to add to a state number, accounting for previous dfa's and jammed state.
+
+    # table because multiple accept states can exist for a single rule.
+    # The caseLabel needs to be tracked because we need that for jumps from accept states with outgoing transitions.
     scRuleToAdditionalCaseBranches: OrderedTable[(StartCond, RuleIdx), (
-        CaseLabel,
-        NimNode)] # table because multiple accept states can exist for a single rule. The value is (caseLabel, NimNode), the caseLabel needs to be tracked because we need that for jumps from accept states with outgoing transitions.
+        CaseLabel, NimNode)]
 
 proc `==` (a, b: StartCond): bool {.borrow.}
 proc `==` (a, b: RuleIdx): bool {.borrow.}
 
 proc replaceBeginState(curSc: NimNode; ctx: var CodegenCtx; state,
+  # goes through the AST and replace "beginState(someStr)"
+  # with `curSc` = `startState` where startState is the index of
+  # the start state we look up using mapping in the ctx object.
     n: NimNode): NimNode =
   case n
   of StmtList[all @stmts]:
@@ -126,10 +133,10 @@ proc replaceBeginState(curSc: NimNode; ctx: var CodegenCtx; state,
   else:
     return n
 
-proc genMatcher(sc: StartCond; state: NimNode; ctx: var CodegenCtx;
-    curSc: NimNode; a: DFA; s, i: NimNode; rules: seq[Rule]; isCString: bool;
-    caseStmt: NimNode; stateCnt: int; lastAccPos,
-    lastAccStateAction: NimNode) {.compileTime.} =
+proc genMatcher(caseStmt: NimNode; ctx: var CodegenCtx; sc: StartCond;
+    state: NimNode; curSc: NimNode; a: DFA; s, pos: NimNode; rules: seq[Rule];
+    isCString: bool; stateCnt: int; lastAccPos, lastAccStateAction,
+    lexState: NimNode) {.compileTime.} =
   ## curSc: the genSym'ed variable track cur start cond's start state.
   ## state: the genSym'ed variable for cur state inside the while loop.
   for src in countup(1, a.stateCount):
@@ -139,13 +146,13 @@ proc genMatcher(sc: StartCond; state: NimNode; ctx: var CodegenCtx;
       let (others, cs) = allTransitions(a, src, dest)
       if cs != {}:
         ifStmt.add newTree(nnkElifBranch,
-                           getCmp(s, i, cs, isCString),
-                           nextState(i, state, dest+ctx.labelOffset))
+                           getCmp(s, pos, cs, isCString),
+                           nextState(pos, state, dest+ctx.labelOffset))
       for ot in others:
         if ot.kind == reChar:
           ifStmt.add newTree(nnkElifBranch,
-                             getSpecial(s, i, ot, isCString),
-                             nextState(i, state, dest+ctx.labelOffset))
+                             getSpecial(s, pos, ot, isCString),
+                             nextState(pos, state, dest+ctx.labelOffset))
         else:
           doAssert false, "not supported " & $ot.kind
     var caseLabel: CaseLabel
@@ -164,14 +171,17 @@ proc genMatcher(sc: StartCond; state: NimNode; ctx: var CodegenCtx;
           newStmtList(quote do:
             `state` = `caseLabel`)
         else:
+          # set the lexState pos before taking action.
+          let setLexState = quote do:
+            `lexState`.pos = `pos`
           let actions = replaceBeginState(curSc, ctx, state, rules[
               rule-1].actions)
           # it is already its own case branch for the accept actions
-          newStmtList(actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty)))
+          newStmtList(setLexState, actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty)))
       else:
         # no possible transition, go to last accepted state and pos
         newStmtList(quote do:
-            `i` = `lastAccPos`
+            `pos` = `lastAccPos`
             `state` = `lastAccStateAction`)
     if ifStmt.len == 0:
       caseStmt.add newTree(nnkOfBranch, newLit(src + ctx.labelOffset), actions)
@@ -179,7 +189,7 @@ proc genMatcher(sc: StartCond; state: NimNode; ctx: var CodegenCtx;
       ifStmt.add newTree(nnkElse, actions)
       if rule >= 1:
         let updates = quote do:
-          `lastAccPos` = `i`
+          `lastAccPos` = `pos`
           `lastAccStateAction` = `caseLabel`
         let stmt = newStmtList(updates, ifStmt)
         caseStmt.add newTree(nnkOfBranch, newLit(src + ctx.labelOffset), stmt)
@@ -271,8 +281,8 @@ template genDfa(ctx: var CodegenCtx) =
 
 template genCode(ctx: var CodegenCtx) {.dirty.} =
   # because states for individual DFA fall in the range(1..numStates)
-  # but we have multiple DFA, so keep running count of states added so far
-  # incremented once for each dfa processed.
+  # but we have multiple DFA due to start conditions, so keep running count
+  # of states added so far, incremented once for each dfa processed.
   ctx.labelOffset = 1 # 1 is the jammed state 
   # pos, oldPos, input, lexState intentionally exposed to user action code
   let pos = ident("pos")
@@ -283,7 +293,7 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
   let curSc = genSym(nskVar, "curSc")
   let state = genSym(nskVar, "state")
 
-  var stateCnt = 1 # for jammed state
+  var stateCnt = 1 # account for jammed state
   for dfa in ctx.dfas:
     ctx.scStartOffsets.add stateCnt + dfa.startState
     stateCnt += dfa.stateCount
@@ -295,6 +305,7 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
   let initScStartState = ctx.scStartOffsets[0]
   let caseStmt = newNimNode(nnkCaseStmt)
   caseStmt.add state
+  # generate the action for the jammed state.
   caseStmt.add newTree(nnkOfBranch, newLit(1), quote do:
     # this is the default value of lastAccStateAction when there is no last accepted position.
     raise newException(JammedException, "state machine is jammed! there is no more possible match"))
@@ -303,8 +314,8 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
   let lastAccStateAction = genSym(nskVar, "lastAccStateAction")
   let lastAccPos = genSym(nskVar, "lastAccPos")
   for sc, dfa in ctx.dfas:
-    genMatcher(sc.StartCond, state, ctx, curSc, dfa, input, pos, ctx.scToRules[
-        sc], isCstr, caseStmt, stateCnt, lastAccPos, lastAccStateAction)
+    caseStmt.genMatcher(ctx, sc.StartCond, state, curSc, dfa, input, pos,
+        ctx.scToRules[sc], isCstr, stateCnt, lastAccPos, lastAccStateAction, lexState)
 
   # generate the additional case branches for the actions
   # of accept states that have outgoing transitions.
@@ -327,6 +338,7 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
         var `state` {.goto.}: range[1..`caseLabelUpper`]
         var `curSc`: range[1..`caseLabelUpper`] = `initScStartState`
         var `pos` = 0
+        `lexState`.pos = 0
         while `pos` < `input`.len:
           let `oldPos` = `pos`
           var `lastAccPos` = `pos`

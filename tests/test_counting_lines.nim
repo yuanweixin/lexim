@@ -18,6 +18,7 @@ type
   State = object
     lineStartPos: int
     lineNumber: int
+    pos: int
 
 # example of how you can implement line and col tracking.
 genStringMatcher makeLex[State, Token]:

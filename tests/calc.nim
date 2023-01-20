@@ -12,8 +12,11 @@ variant MyToken:
   RPAREN
   IGNORE
 
+type LexState = object
+  pos: int
+
 # mostly revolves the escape patterns
-genStringMatcher makeLex[int, MyToken]:
+genStringMatcher makeLex[LexState, MyToken]:
   r"\(":
     yield LPAREN()
   r"\)":
@@ -27,10 +30,11 @@ genStringMatcher makeLex[int, MyToken]:
   r"\s":
     discard
 
+
 test "test calculator tokenize":
   var
     lexIter = makeLex("(20 + 1) * 2")
-    state = 1
+    state = LexState(pos: 0)
     res: seq[MyToken] = @[]
   for t in lexIter(state):
     res.add t

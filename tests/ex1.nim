@@ -21,6 +21,7 @@ import lexim
 type State = object
   strBody: string
   commentDepth: int
+  pos: int
 
 type Token = object
   thing: int
@@ -49,9 +50,8 @@ genStringMatcher makeLexIter[State, Token]:
 
 proc main =
   var input = "begin string hello world end stringthe 0909 else input elif elseo end"
-  var state = State(strBody: "", commentDepth: 0)
+  var state = State(strBody: "", commentDepth: 0, pos: 0)
   let tokenIter = makeLexIter(input)
   for thing in tokenIter(state):
     discard
-
 main()

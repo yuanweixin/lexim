@@ -54,6 +54,7 @@ type
     TigerlexState* = object
         strBody: string
         commentDepth: int
+        pos: int
 
 proc newLexState*(): TigerlexState =
     result = TigerlexState(strBody: "", commentDepth: 0)

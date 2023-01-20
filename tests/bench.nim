@@ -20,7 +20,9 @@ let thaRe = re.re("[Pp]leasuring", {reDotAll, reStudy})
 
 import lexim
 
-lexim.genStringMatcher makeLex[int, int]:
+type LexState = object
+  pos: int
+lexim.genStringMatcher makeLex[LexState, int]:
   r"[Pp]leasuring":
     yield pos
   r".":
@@ -42,6 +44,7 @@ proc pegs(input: string): int =
   let r = p.match(input)
   return if r.ok: r.matchLen else: -1
 
+
 proc main =
   let inp = readFile("tests/benchdata.txt")
   when true:
@@ -58,7 +61,7 @@ proc main =
         discard find(inp, "pleasuring")
 
     bench "lexer":
-      var res = -1
+      var res = LexState(pos: 0)
       for i in 1..100:
         let lexIter = makeLex(inp)
         for nextp in lexIter(res):
@@ -75,9 +78,9 @@ proc main =
     echo matchLen(inp, bc)
     echo re.find(inp, thaRe)+len"pleasuring"
     echo find(inp, "pleasuring")+len"pleasuring"
-    var pos = -1
+    var state = LexState(pos: 0)
     let lexIter = makeLex(inp)
-    for nextp in lexIter(pos):
+    for nextp in lexIter(state):
       echo $nextp
       break
     echo scan(inp) # +len"pleasuring"

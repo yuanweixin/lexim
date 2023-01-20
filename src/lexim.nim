@@ -168,20 +168,25 @@ proc genMatcher(caseStmt: NimNode; ctx: var CodegenCtx; sc: StartCond;
             # the actions need to go into its own, separate case branch
             caseLabel = (stateCnt + 1 + ctx.scRuleToAdditionalCaseBranches.len).CaseLabel
             # don't forget to set the lexState.pos in the action block.
-            let setLexState = quote do:
-              `lexState`.pos = `pos`
+            let setEndPos = quote do:
+              `lexState`.endPosExcl = `pos`
+            let setStartPos = quote do:
+              `lexState`.startPos = `pos`
             ctx.scRuleToAdditionalCaseBranches[key] = (caseLabel, newStmtList(
-                setLexState, actions))
+                setEndPos, actions, setStartPos))
           newStmtList(quote do:
             `state` = `caseLabel`)
         else:
           # set the lexState pos before taking action.
-          let setLexState = quote do:
-            `lexState`.pos = `pos`
+          let setEndPos = quote do:
+            `lexState`.endPosExcl = `pos`
+          let setStartPos = quote do:
+            `lexState`.startPos = `pos`
           let actions = replaceBeginState(curSc, ctx, state, rules[
               rule-1].actions)
           # it is already its own case branch for the accept actions
-          newStmtList(setLexState, actions, newTree(nnkBreakStmt, newNimNode(nnkEmpty)))
+          newStmtList(setEndPos, actions, setStartPos, newTree(nnkBreakStmt,
+              newNimNode(nnkEmpty)))
       else:
         # no possible transition, go to last accepted state and pos
         newStmtList(quote do:
@@ -342,7 +347,8 @@ template genCode(ctx: var CodegenCtx) {.dirty.} =
         var `state` {.goto.}: range[1..`caseLabelUpper`]
         var `curSc`: range[1..`caseLabelUpper`] = `initScStartState`
         var `pos` = 0
-        `lexState`.pos = 0
+        `lexState`.startPos = 0
+        `lexState`.endPosExcl = 0
         while `pos` < `input`.len:
           let `oldPos` = `pos`
           var `lastAccPos` = `pos`

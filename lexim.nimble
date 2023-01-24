@@ -1,4 +1,4 @@
-version       = "1.0.2"
+version       = "1.0.0"
 author        = "Wei Xin Yuan"
 description   = "lexer library based on the original version by Andreas Rumpf"
 version = "1.0"
